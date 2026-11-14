@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { sql } from 'drizzle-orm';
 import { Client, addStaff, makeApp, registerOrg } from './helpers.js';
 
 let ctx: Awaited<ReturnType<typeof makeApp>>;
@@ -54,10 +55,19 @@ describe('auth', () => {
     const second = c.cookie;
     expect(second).not.toBe(first);
 
-    // Replay the old token -> family revoked
+    // Replay within the grace window (e.g. two tabs) -> rejected, but the session survives
     c.cookie = first;
     expect((await c.post('/api/v1/auth/refresh')).status).toBe(401);
     c.cookie = second;
+    const r2 = await c.post('/api/v1/auth/refresh');
+    expect(r2.status).toBe(200);
+    const third = c.cookie;
+
+    // Replay after the grace window -> treated as theft, whole family revoked
+    await ctx.db.execute(sql`update refresh_tokens set revoked_at = now() - interval '1 minute' where revoked_at is not null`);
+    c.cookie = second;
+    expect((await c.post('/api/v1/auth/refresh')).status).toBe(401);
+    c.cookie = third;
     expect((await c.post('/api/v1/auth/refresh')).status).toBe(401);
   });
 

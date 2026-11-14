@@ -1,0 +1,41 @@
+# Production-like local stack: Postgres + API + web (nginx).
+#   cp .env.example .env   # then set JWT_SECRET
+#   docker compose up --build
+#   docker compose exec api node dist/db/seed.js   # optional demo data
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tablewise
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tablewise}
+      POSTGRES_DB: tablewise
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tablewise"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://tablewise:${POSTGRES_PASSWORD:-tablewise}@db:5432/tablewise
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      CORS_ORIGINS: ${PUBLIC_URL:-http://localhost:8080}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-true}
+      LOG_LEVEL: info
+    depends_on:
+      db: { condition: service_healthy }
+    restart: unless-stopped
+
+  web:
+    build: { context: ., dockerfile: apps/web/Dockerfile }
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on: [api]
+    restart: unless-stopped
+
+volumes:
+  pgdata:

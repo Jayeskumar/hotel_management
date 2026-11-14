@@ -1,0 +1,78 @@
+import { lazy, Suspense, type ReactNode } from 'react';
+import { Navigate, Route, Routes } from 'react-router';
+import type { Permission } from '@tablewise/shared';
+import { useAuth } from './lib/auth';
+import { Layout } from './components/Layout';
+import { EmptyState, PageLoader } from './components/ui';
+import { LoginPage } from './pages/Login';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Floor = lazy(() => import('./pages/Floor'));
+const OrderScreen = lazy(() => import('./pages/OrderScreen'));
+const Orders = lazy(() => import('./pages/Orders'));
+const Kitchen = lazy(() => import('./pages/Kitchen'));
+const Reservations = lazy(() => import('./pages/Reservations'));
+const MenuPage = lazy(() => import('./pages/Menu'));
+const Inventory = lazy(() => import('./pages/Inventory'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Staff = lazy(() => import('./pages/Staff'));
+const AuditLog = lazy(() => import('./pages/AuditLog'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const Register = lazy(() => import('./pages/Register'));
+
+function Guard({ perms, children }: { perms?: Permission[]; children: ReactNode }) {
+  const { can } = useAuth();
+  if (perms && !perms.some(can)) {
+    return <EmptyState title="Access restricted" description="Your role doesn't have access to this page. Ask a manager if you need it." />;
+  }
+  return <>{children}</>;
+}
+
+export function App() {
+  const { session, loading, outlet } = useAuth();
+  if (loading) return <PageLoader />;
+
+  if (!session) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          <Route path="/register" element={<Register />} />
+          <Route path="*" element={<LoginPage />} />
+        </Routes>
+      </Suspense>
+    );
+  }
+  if (!outlet) {
+    return <EmptyState title="No outlet assigned" description="Your account isn't assigned to any active outlet yet. Contact your administrator." />;
+  }
+
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<S><Dashboard /></S>} />
+        <Route path="floor" element={<S perms={['orders:view']}><Floor /></S>} />
+        <Route path="orders" element={<S perms={['orders:view']}><Orders /></S>} />
+        <Route path="orders/:orderId" element={<S perms={['orders:view']}><OrderScreen /></S>} />
+        <Route path="kitchen" element={<S perms={['kitchen:view']}><Kitchen /></S>} />
+        <Route path="reservations" element={<S perms={['reservations:view']}><Reservations /></S>} />
+        <Route path="menu" element={<S perms={['menu:manage', 'kitchen:update']}><MenuPage /></S>} />
+        <Route path="inventory" element={<S perms={['inventory:view']}><Inventory /></S>} />
+        <Route path="reports" element={<S perms={['reports:view']}><Reports /></S>} />
+        <Route path="staff" element={<S perms={['staff:manage']}><Staff /></S>} />
+        <Route path="audit" element={<S perms={['audit:view']}><AuditLog /></S>} />
+        <Route path="settings" element={<S><SettingsPage /></S>} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+function S({ perms, children }: { perms?: Permission[]; children: ReactNode }) {
+  const { outlet } = useAuth();
+  return (
+    <Guard perms={perms}>
+      {/* Remount pages when the outlet changes so local state never leaks across outlets. */}
+      <Suspense key={outlet?.id} fallback={<PageLoader />}>{children}</Suspense>
+    </Guard>
+  );
+}

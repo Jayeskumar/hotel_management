@@ -13,6 +13,7 @@ import { audit } from '../lib/audit.js';
 const REFRESH_COOKIE = 'tw_refresh';
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MINUTES = 15;
+const REUSE_GRACE_MS = 10_000;
 
 const sha256 = (v: string) => crypto.createHash('sha256').update(v).digest('hex');
 
@@ -134,6 +135,11 @@ export default async function authRoutes(app: FastifyInstance) {
     const [token] = await app.db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, sha256(raw)));
     if (!token) throw unauthorized('Invalid refresh token');
     if (token.revokedAt) {
+      // Two tabs refreshing at the same moment is benign: don't treat a token
+      // rotated within the last few seconds as theft.
+      if (token.replacedById && Date.now() - token.revokedAt.getTime() < REUSE_GRACE_MS) {
+        throw unauthorized('Refresh token was just rotated; retry with the new token');
+      }
       await app.db.update(refreshTokens).set({ revokedAt: new Date() })
         .where(and(eq(refreshTokens.familyId, token.familyId), isNull(refreshTokens.revokedAt)));
       reply.clearCookie(REFRESH_COOKIE, { path: cookiePath });

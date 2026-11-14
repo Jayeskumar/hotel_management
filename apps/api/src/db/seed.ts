@@ -40,7 +40,7 @@ await db.transaction(async (tx) => {
     receiptFooter: 'Thank you for dining with us!',
   }).returning();
   const [outlet2] = await tx.insert(outlets).values({
-    organizationId: org!.id, name: 'Airport Express', currency: 'USD', timezone: 'America/New_York', taxRateBps: 800,
+    organizationId: org!.id, name: 'Uptown Express', currency: 'USD', timezone: 'America/New_York', taxRateBps: 800,
   }).returning();
 
   const hash = await hashPassword(PASSWORD);
