@@ -2,8 +2,14 @@
  * Fetch wrapper: attaches the in-memory access token, transparently refreshes
  * it once on 401 using the httpOnly refresh cookie, and normalises errors.
  */
+import { formatMessage, isMessageKey, type MessageParams } from '@tablewise/shared';
+import { getLang, translate } from '../i18n';
+
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string, public details?: unknown) {
+  constructor(
+    public status: number, public code: string, message: string,
+    public details?: unknown, public key?: string, public params?: MessageParams,
+  ) {
     super(message);
   }
 }
@@ -64,7 +70,7 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
   const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
   if (!res.ok) {
     const err = data?.error ?? {};
-    throw new ApiError(res.status, err.code ?? 'ERROR', err.message ?? res.statusText, err.details);
+    throw new ApiError(res.status, err.code ?? 'ERROR', err.message ?? res.statusText, err.details, err.key, err.params);
   }
   return data as T;
 }
@@ -90,13 +96,16 @@ export async function download(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Human message for an error, in the active language. */
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     if (e.code === 'VALIDATION_ERROR' && Array.isArray(e.details) && e.details.length) {
       const d = e.details[0] as { path: string; message: string };
-      return d.path ? `${d.path}: ${d.message}` : d.message;
+      return `${formatMessage(getLang(), 'error.validation')} — ${d.path ? `${d.path}: ` : ''}${d.message}`;
     }
+    if (isMessageKey(e.key)) return formatMessage(getLang(), e.key, e.params);
     return e.message;
   }
-  return e instanceof Error ? e.message : 'Something went wrong';
+  if (e instanceof TypeError) return formatMessage(getLang(), 'error.internal');
+  return e instanceof Error ? e.message : translate('common.loading');
 }

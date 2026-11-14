@@ -40,11 +40,22 @@ export const outlets = pgTable('outlets', {
   name: varchar('name', { length: 120 }).notNull(),
   address: varchar('address', { length: 300 }),
   phone: varchar('phone', { length: 40 }),
-  currency: varchar('currency', { length: 3 }).notNull().default('USD'),
-  timezone: varchar('timezone', { length: 64 }).notNull().default('UTC'),
-  taxRateBps: integer('tax_rate_bps').notNull().default(0),
+  currency: varchar('currency', { length: 3 }).notNull().default('INR'),
+  timezone: varchar('timezone', { length: 64 }).notNull().default('Asia/Kolkata'),
+  /** Default GST rate; 5% for standalone restaurants. */
+  taxRateBps: integer('tax_rate_bps').notNull().default(500),
+  /** Service charge is optional in India and off by default (CCPA guidelines). */
   serviceChargeBps: integer('service_charge_bps').notNull().default(0),
   receiptFooter: varchar('receipt_footer', { length: 500 }),
+  legalName: varchar('legal_name', { length: 160 }),
+  gstin: varchar('gstin', { length: 15 }),
+  fssaiNumber: varchar('fssai_number', { length: 14 }),
+  upiVpa: varchar('upi_vpa', { length: 320 }),
+  roundOff: boolean('round_off').notNull().default(true),
+  invoicePrefix: varchar('invoice_prefix', { length: 6 }).notNull().default('INV'),
+  /** GST invoice serial, reset at the start of each financial year (invoiceFy). */
+  invoiceSeq: integer('invoice_seq').notNull().default(0),
+  invoiceFy: varchar('invoice_fy', { length: 4 }),
   orderSeq: integer('order_seq').notNull().default(0),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: createdAt(),
@@ -120,18 +131,20 @@ export const menuCategories = pgTable('menu_categories', {
   id: pk(),
   outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 120 }).notNull(),
+  nameTa: varchar('name_ta', { length: 160 }),
   sortOrder: integer('sort_order').notNull().default(0),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: createdAt(),
 }, (t) => [index('menu_categories_outlet_idx').on(t.outletId)]);
 
-export type Modifier = { name: string; priceCents: number };
+export type Modifier = { name: string; nameTa?: string | null; priceCents: number };
 
 export const menuItems = pgTable('menu_items', {
   id: pk(),
   outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'cascade' }),
   categoryId: uuid('category_id').notNull().references(() => menuCategories.id, { onDelete: 'restrict' }),
   name: varchar('name', { length: 120 }).notNull(),
+  nameTa: varchar('name_ta', { length: 160 }),
   description: varchar('description', { length: 500 }),
   sku: varchar('sku', { length: 40 }),
   priceCents: integer('price_cents').notNull(),
@@ -164,6 +177,10 @@ export const orders = pgTable('orders', {
   discount: jsonb('discount').$type<Discount | null>(),
   discountReason: varchar('discount_reason', { length: 200 }),
   serviceChargeBps: integer('service_charge_bps').notNull().default(0),
+  roundOff: boolean('round_off').notNull().default(true),
+  roundOffCents: integer('round_off_cents').notNull().default(0),
+  /** GST tax-invoice number, assigned when the order is settled, e.g. INV/2526/000123. */
+  invoiceNumber: varchar('invoice_number', { length: 16 }),
   subtotalCents: integer('subtotal_cents').notNull().default(0),
   discountCents: integer('discount_cents').notNull().default(0),
   serviceChargeCents: integer('service_charge_cents').notNull().default(0),
@@ -179,6 +196,7 @@ export const orders = pgTable('orders', {
   updatedAt: updatedAt(),
 }, (t) => [
   uniqueIndex('orders_outlet_number_uq').on(t.outletId, t.orderNumber),
+  uniqueIndex('orders_outlet_invoice_uq').on(t.outletId, t.invoiceNumber),
   index('orders_outlet_status_idx').on(t.outletId, t.status),
   index('orders_outlet_opened_idx').on(t.outletId, t.openedAt),
   index('orders_table_idx').on(t.tableId),
@@ -190,6 +208,7 @@ export const orderItems = pgTable('order_items', {
   outletId: uuid('outlet_id').notNull().references(() => outlets.id, { onDelete: 'cascade' }),
   menuItemId: uuid('menu_item_id').references(() => menuItems.id, { onDelete: 'set null' }),
   name: varchar('name', { length: 120 }).notNull(),
+  nameTa: varchar('name_ta', { length: 160 }),
   station: stationEnum('station').notNull(),
   unitPriceCents: integer('unit_price_cents').notNull(),
   modifiers: jsonb('modifiers').$type<Modifier[]>().notNull().default([]),

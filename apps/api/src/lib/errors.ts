@@ -1,17 +1,25 @@
+import { formatMessage, type MessageKey, type MessageParams } from '@tablewise/shared';
+
+/**
+ * Domain error carrying a translatable message key. The English message is
+ * included for logs and API consumers; clients localise via `key` + `params`.
+ */
 export class AppError extends Error {
   constructor(
     public statusCode: number,
     public code: string,
-    message: string,
+    public key: MessageKey,
+    public params?: MessageParams,
     public details?: unknown,
   ) {
-    super(message);
+    super(formatMessage('en', key, params));
   }
 }
 
-export const badRequest = (message: string, details?: unknown) => new AppError(400, 'BAD_REQUEST', message, details);
-export const unauthorized = (message = 'Authentication required') => new AppError(401, 'UNAUTHORIZED', message);
-export const forbidden = (message = 'You do not have permission to perform this action') =>
-  new AppError(403, 'FORBIDDEN', message);
-export const notFound = (entity = 'Resource') => new AppError(404, 'NOT_FOUND', `${entity} not found`);
-export const conflict = (message: string) => new AppError(409, 'CONFLICT', message);
+type EntityKey = Extract<MessageKey, `entity.${string}`>;
+
+export const badRequest = (key: MessageKey, params?: MessageParams) => new AppError(400, 'BAD_REQUEST', key, params);
+export const unauthorized = (key: MessageKey = 'auth.required') => new AppError(401, 'UNAUTHORIZED', key);
+export const forbidden = (key: MessageKey = 'error.forbidden', params?: MessageParams) => new AppError(403, 'FORBIDDEN', key, params);
+export const notFound = (entity: EntityKey) => new AppError(404, 'NOT_FOUND', 'error.notFound', { entity });
+export const conflict = (key: MessageKey, params?: MessageParams) => new AppError(409, 'CONFLICT', key, params);

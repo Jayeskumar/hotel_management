@@ -44,7 +44,7 @@ export default async function floorRoutes(app: FastifyInstance) {
     const input = parse(areaSchema, req.body);
     const [a] = await app.db.update(areas).set(input)
       .where(and(eq(areas.id, id), eq(areas.outletId, outletId))).returning();
-    if (!a) throw notFound('Area');
+    if (!a) throw notFound('entity.area');
     return a;
   });
 
@@ -53,19 +53,19 @@ export default async function floorRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const tables = await app.db.select({ id: diningTables.id }).from(diningTables)
       .where(and(eq(diningTables.areaId, id), eq(diningTables.isActive, true)));
-    if (tables.length) throw conflict('Move or remove the tables in this area first');
+    if (tables.length) throw conflict('area.hasTables');
     // Inactive tables still reference the area; delete them only if they have no history.
     const deleted = await app.db.transaction(async (tx) => {
       const inactive = await tx.select({ id: diningTables.id }).from(diningTables).where(eq(diningTables.areaId, id));
       if (inactive.length) {
         const used = await tx.select({ id: orders.id }).from(orders)
           .where(inArray(orders.tableId, inactive.map((t) => t.id))).limit(1);
-        if (used.length) throw conflict('This area has tables with order history and cannot be deleted');
+        if (used.length) throw conflict('area.hasHistory');
         await tx.delete(diningTables).where(eq(diningTables.areaId, id));
       }
       return tx.delete(areas).where(and(eq(areas.id, id), eq(areas.outletId, outletId))).returning();
     });
-    if (!deleted.length) throw notFound('Area');
+    if (!deleted.length) throw notFound('entity.area');
     await audit(app.db, req, { action: 'area.deleted', entityType: 'area', entityId: id, outletId });
     return { ok: true };
   });
@@ -74,7 +74,7 @@ export default async function floorRoutes(app: FastifyInstance) {
   async function assertArea(outletId: string, areaId: string) {
     const [a] = await app.db.select({ id: areas.id }).from(areas)
       .where(and(eq(areas.id, areaId), eq(areas.outletId, outletId)));
-    if (!a) throw notFound('Area');
+    if (!a) throw notFound('entity.area');
   }
 
   app.post('/tables', { preHandler: [app.requirePermission('tables:manage')] }, async (req, reply) => {
@@ -88,7 +88,7 @@ export default async function floorRoutes(app: FastifyInstance) {
       [table] = await app.db.update(diningTables).set({ ...input, isActive: true, status: 'AVAILABLE' })
         .where(eq(diningTables.id, dup[0].id)).returning();
     } else if (dup.length) {
-      throw conflict(`Table ${input.label} already exists`);
+      throw conflict('table.exists', { table: input.label });
     } else {
       [table] = await app.db.insert(diningTables).values({ ...input, outletId }).returning();
     }
@@ -105,10 +105,10 @@ export default async function floorRoutes(app: FastifyInstance) {
     await assertArea(outletId, input.areaId);
     const dup = await app.db.select({ id: diningTables.id }).from(diningTables)
       .where(and(eq(diningTables.outletId, outletId), eq(diningTables.label, input.label)));
-    if (dup[0] && dup[0].id !== id) throw conflict(`Table ${input.label} already exists`);
+    if (dup[0] && dup[0].id !== id) throw conflict('table.exists', { table: input.label });
     const [t] = await app.db.update(diningTables).set(input)
       .where(and(eq(diningTables.id, id), eq(diningTables.outletId, outletId))).returning();
-    if (!t) throw notFound('Table');
+    if (!t) throw notFound('entity.table');
     app.realtime.emit(outletId, SOCKET_EVENTS.TABLE_UPDATED, { id });
     return t;
   });
@@ -118,11 +118,11 @@ export default async function floorRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const open = await app.db.select({ id: orders.id }).from(orders)
       .where(and(eq(orders.tableId, id), eq(orders.status, 'OPEN')));
-    if (open.length) throw conflict('This table has an open order');
+    if (open.length) throw conflict('table.thisHasOpenOrder');
     // Soft-delete to preserve order history.
     const [t] = await app.db.update(diningTables).set({ isActive: false })
       .where(and(eq(diningTables.id, id), eq(diningTables.outletId, outletId))).returning();
-    if (!t) throw notFound('Table');
+    if (!t) throw notFound('entity.table');
     await audit(app.db, req, { action: 'table.deleted', entityType: 'table', entityId: id, outletId });
     app.realtime.emit(outletId, SOCKET_EVENTS.TABLE_UPDATED, { id });
     return { ok: true };
@@ -134,10 +134,10 @@ export default async function floorRoutes(app: FastifyInstance) {
     const { status } = parse(tableStatusSchema, req.body);
     const open = await app.db.select({ id: orders.id }).from(orders)
       .where(and(eq(orders.tableId, id), eq(orders.status, 'OPEN')));
-    if (open.length && status !== 'OCCUPIED') throw conflict('Close the open order on this table first');
+    if (open.length && status !== 'OCCUPIED') throw conflict('table.closeOrderFirst');
     const [t] = await app.db.update(diningTables).set({ status, statusChangedAt: new Date() })
       .where(and(eq(diningTables.id, id), eq(diningTables.outletId, outletId))).returning();
-    if (!t) throw notFound('Table');
+    if (!t) throw notFound('entity.table');
     app.realtime.emit(outletId, SOCKET_EVENTS.TABLE_UPDATED, { id, status });
     return t;
   });

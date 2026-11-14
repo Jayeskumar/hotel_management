@@ -54,15 +54,15 @@ export default async function kitchenRoutes(app: FastifyInstance) {
     const { status } = parse(itemStatusSchema, req.body);
     const [item] = await app.db.select().from(orderItems)
       .where(and(eq(orderItems.id, itemId), eq(orderItems.outletId, outletId)));
-    if (!item) throw notFound('Order item');
-    if (!ITEM_TRANSITIONS[item.status].includes(status)) throw conflict(`Cannot move item from ${item.status} to ${status}`);
+    if (!item) throw notFound('entity.orderItem');
+    if (!ITEM_TRANSITIONS[item.status].includes(status)) throw conflict('order.badTransition', { from: item.status, to: status });
     const stamp = status === 'PREPARING' ? { startedAt: new Date() }
       : status === 'READY' ? { readyAt: new Date() }
       : status === 'SERVED' ? { servedAt: new Date() } : {};
     // Compare-and-set on the previous status prevents two cooks clobbering each other.
     const [updated] = await app.db.update(orderItems).set({ status, ...stamp })
       .where(and(eq(orderItems.id, itemId), eq(orderItems.status, item.status))).returning();
-    if (!updated) throw conflict('Item was updated by someone else; refresh and retry');
+    if (!updated) throw conflict('order.concurrentUpdate');
     app.realtime.emit(outletId, SOCKET_EVENTS.KITCHEN_UPDATED, { orderId: item.orderId });
     app.realtime.emit(outletId, SOCKET_EVENTS.ORDER_UPDATED, { id: item.orderId });
     return updated;

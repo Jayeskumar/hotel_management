@@ -4,6 +4,8 @@ import type {
 
 export interface OutletSummary {
   id: string; name: string; currency: string; timezone: string; taxRateBps: number; serviceChargeBps: number;
+  legalName: string | null; address: string | null; phone: string | null; gstin: string | null;
+  fssaiNumber: string | null; upiVpa: string | null; receiptFooter: string | null; roundOff: boolean;
 }
 export interface Session {
   user: { id: string; name: string; email: string; role: Role };
@@ -12,7 +14,7 @@ export interface Session {
   permissions: Permission[];
 }
 export interface Outlet extends OutletSummary {
-  address: string | null; phone: string | null; receiptFooter: string | null;
+  invoicePrefix: string;
 }
 export interface Area { id: string; name: string; sortOrder: number }
 export interface DiningTable {
@@ -20,15 +22,15 @@ export interface DiningTable {
   status: TableStatus; statusChangedAt: string;
   openOrder: { id: string; orderNumber: number; totalCents: number; guestCount: number; openedAt: string } | null;
 }
-export interface Modifier { name: string; priceCents: number }
-export interface Category { id: string; name: string; sortOrder: number; isActive: boolean }
+export interface Modifier { name: string; nameTa?: string | null; priceCents: number }
+export interface Category { id: string; name: string; nameTa: string | null; sortOrder: number; isActive: boolean }
 export interface MenuItem {
-  id: string; categoryId: string; name: string; description: string | null; sku: string | null;
+  id: string; categoryId: string; name: string; nameTa: string | null; description: string | null; sku: string | null;
   priceCents: number; taxRateBps: number | null; station: Station; isAvailable: boolean; isVeg: boolean;
   prepTimeMin: number; modifiers: Modifier[];
 }
 export interface OrderItem {
-  id: string; orderId: string; menuItemId: string | null; name: string; station: Station;
+  id: string; orderId: string; menuItemId: string | null; name: string; nameTa: string | null; station: Station;
   unitPriceCents: number; modifiers: Modifier[]; modifiersCents: number; taxRateBps: number;
   quantity: number; notes: string | null; status: ItemStatus; voidReason: string | null;
   firedAt: string | null; startedAt: string | null; readyAt: string | null; servedAt: string | null; createdAt: string;
@@ -41,7 +43,7 @@ export interface Order {
   id: string; orderNumber: number; type: OrderType; status: OrderStatus; tableId: string | null;
   guestCount: number; customerName: string | null; customerPhone: string | null; notes: string | null;
   discount: { type: 'FLAT'; amountCents: number } | { type: 'PERCENT'; bps: number } | null;
-  discountReason: string | null; serviceChargeBps: number;
+  discountReason: string | null; serviceChargeBps: number; roundOffCents: number; invoiceNumber: string | null;
   subtotalCents: number; discountCents: number; serviceChargeCents: number; taxCents: number;
   totalCents: number; paidCents: number; tipCents: number; cancelReason: string | null;
   openedAt: string; closedAt: string | null;

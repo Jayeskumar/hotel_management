@@ -26,8 +26,8 @@ export default async function reservationRoutes(app: FastifyInstance) {
     const [table] = await tx.select().from(diningTables)
       .where(and(eq(diningTables.id, tableId), eq(diningTables.outletId, outletId), eq(diningTables.isActive, true)))
       .for('update');
-    if (!table) throw notFound('Table');
-    if (table.seats < partySize) throw badRequest(`Table ${table.label} seats only ${table.seats}`);
+    if (!table) throw notFound('entity.table');
+    if (table.seats < partySize) throw badRequest('table.tooSmall', { table: table.label, seats: table.seats });
     const end = new Date(start.getTime() + durationMin * 60_000);
     const clash = await tx.select({ id: reservations.id }).from(reservations).where(and(
       eq(reservations.tableId, tableId),
@@ -36,7 +36,7 @@ export default async function reservationRoutes(app: FastifyInstance) {
       sql`${reservations.reservedFor} + (${reservations.durationMin} * interval '1 minute') > ${start.toISOString()}::timestamptz`,
       ...(excludeId ? [ne(reservations.id, excludeId)] : []),
     )).limit(1);
-    if (clash.length) throw conflict(`Table ${table.label} is already booked for that time`);
+    if (clash.length) throw conflict('table.booked', { table: table.label });
   }
 
   app.get('/reservations', view, async (req) => {
@@ -79,8 +79,8 @@ export default async function reservationRoutes(app: FastifyInstance) {
     const start = new Date(input.reservedFor);
     const r = await app.db.transaction(async (tx) => {
       const [existing] = await tx.select().from(reservations).where(and(eq(reservations.id, id), eq(reservations.outletId, outletId)));
-      if (!existing) throw notFound('Reservation');
-      if (existing.status !== 'BOOKED') throw conflict('Only booked reservations can be edited');
+      if (!existing) throw notFound('entity.reservation');
+      if (existing.status !== 'BOOKED') throw conflict('reservation.onlyBookedEditable');
       if (input.tableId) await assertTableFree(tx, outletId, input.tableId, start, input.durationMin, input.partySize, id);
       const [row] = await tx.update(reservations)
         .set({ ...input, reservedFor: start, customerEmail: input.customerEmail || null })
@@ -97,9 +97,9 @@ export default async function reservationRoutes(app: FastifyInstance) {
     const { status } = parse(reservationStatusSchema, req.body);
     const r = await app.db.transaction(async (tx) => {
       const [existing] = await tx.select().from(reservations).where(and(eq(reservations.id, id), eq(reservations.outletId, outletId))).for('update');
-      if (!existing) throw notFound('Reservation');
+      if (!existing) throw notFound('entity.reservation');
       if (!RESERVATION_TRANSITIONS[existing.status].includes(status)) {
-        throw conflict(`Cannot change reservation from ${existing.status} to ${status}`);
+        throw conflict('reservation.badTransition', { from: existing.status, to: status });
       }
       const [row] = await tx.update(reservations).set({ status }).where(eq(reservations.id, id)).returning();
       await audit(tx, req, { action: `reservation.${status.toLowerCase()}`, entityType: 'reservation', entityId: id, outletId });

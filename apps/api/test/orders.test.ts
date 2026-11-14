@@ -26,26 +26,39 @@ describe('dine-in order lifecycle', () => {
     // Waiter seats the table
     const created = await w.waiter.post(`${w.base}/orders`, {
       type: 'DINE_IN', tableId: w.t1.id, guestCount: 2,
-      items: [{ menuItemId: w.burger.id, quantity: 2, modifiers: ['Cheese'] }],
+      items: [{ menuItemId: w.burger.id, quantity: 2, modifiers: ['Ghee'] }],
     });
     expect(created.status).toBe(201);
     const order = created.body;
     expect(order.orderNumber).toBe(1);
-    // 2 x (1000 + 100) = 2200; service 5% = 110; tax 10% of 2310 = 231
-    expect(order.subtotalCents).toBe(2200);
-    expect(order.serviceChargeCents).toBe(110);
-    expect(order.taxCents).toBe(231);
-    expect(order.totalCents).toBe(2541);
+    // 2 x (₹100 + ₹20) = ₹240; service 10% = ₹24; GST 5% of ₹264 = ₹13.20; ₹277.20 rounds to ₹277
+    expect(order.subtotalCents).toBe(24000);
+    expect(order.serviceChargeCents).toBe(2400);
+    expect(order.taxCents).toBe(1320);
+    expect(order.roundOffCents).toBe(-20);
+    expect(order.totalCents).toBe(27700);
+    expect(order.items[0].nameTa).toBe('மசாலா தோசை');
+    expect(order.items[0].modifiers[0].nameTa).toBe('நெய்');
+
+    // Guest declines the (optional) service charge, then it is restored
+    const noSvc = await w.cashier.post(`${w.base}/orders/${order.id}/service-charge`, { enabled: false });
+    expect(noSvc.body.serviceChargeCents).toBe(0);
+    expect(noSvc.body.totalCents).toBe(25200); // 240 + 12 GST
+    expect((await w.waiter.post(`${w.base}/orders/${order.id}/service-charge`, { enabled: true })).status).toBe(403);
+    expect((await w.cashier.post(`${w.base}/orders/${order.id}/service-charge`, { enabled: true })).body.totalCents).toBe(27700);
 
     const floor = (await w.waiter.get(`${w.base}/floor`)).body;
     expect(floor.tables.find((t: any) => t.id === w.t1.id).status).toBe('OCCUPIED');
 
-    // Table can't be double-seated
-    expect((await w.waiter.post(`${w.base}/orders`, { type: 'DINE_IN', tableId: w.t1.id })).status).toBe(409);
+    // Table can't be double-seated; the error carries a translatable key
+    const dup = await w.waiter.post(`${w.base}/orders`, { type: 'DINE_IN', tableId: w.t1.id });
+    expect(dup.status).toBe(409);
+    expect(dup.body.error.key).toBe('table.hasOpenOrder');
+    expect(dup.body.error.params).toEqual({ table: 'T1' });
 
     // Unknown modifier is rejected
     expect((await w.waiter.post(`${w.base}/orders/${order.id}/items`, {
-      items: [{ menuItemId: w.soda.id, quantity: 1, modifiers: ['Cheese'] }],
+      items: [{ menuItemId: w.soda.id, quantity: 1, modifiers: ['Ghee'] }],
     })).status).toBe(400);
 
     const added = await w.waiter.post(`${w.base}/orders/${order.id}/items`, { items: [{ menuItemId: w.soda.id, quantity: 1 }] });
@@ -60,7 +73,7 @@ describe('dine-in order lifecycle', () => {
     expect((await w.waiter.post(`${w.base}/orders/${order.id}/fire`)).status).toBe(409);
 
     // KDS filtered by station
-    const grill = (await w.chef.get(`${w.base}/kitchen?station=GRILL`)).body;
+    const grill = (await w.chef.get(`${w.base}/kitchen?station=TIFFIN`)).body;
     expect(grill).toHaveLength(1);
     expect(grill[0].items).toHaveLength(1);
     expect(grill[0].tableLabel).toBe('T1');
@@ -76,25 +89,26 @@ describe('dine-in order lifecycle', () => {
     expect((await w.waiter.post(`${w.base}/orders/${order.id}/items/${burgerLine.id}/serve`)).status).toBe(200);
 
     // Waiter can't void a fired item; manager-level owner can
-    const sodaLine = added.body.items.find((i: any) => i.name === 'Soda');
+    const sodaLine = added.body.items.find((i: any) => i.name === 'Filter Coffee');
     expect((await w.waiter.post(`${w.base}/orders/${order.id}/items/${sodaLine.id}/void`, { reason: 'Spilled' })).status).toBe(403);
     const voided = await w.owner.post(`${w.base}/orders/${order.id}/items/${sodaLine.id}/void`, { reason: 'Guest changed mind' });
     expect(voided.status).toBe(200);
-    expect(voided.body.totalCents).toBe(2541);
+    expect(voided.body.totalCents).toBe(27700);
 
     // Split payment with idempotency
     const p1 = await w.cashier.post(`${w.base}/orders/${order.id}/payments`, { method: 'CARD', amountCents: 1000, idempotencyKey: 'key-abcdefgh' });
     expect(p1.status).toBe(201);
-    expect(p1.body.balanceCents).toBe(1541);
+    expect(p1.body.balanceCents).toBe(26700);
     const replay = await w.cashier.post(`${w.base}/orders/${order.id}/payments`, { method: 'CARD', amountCents: 1000, idempotencyKey: 'key-abcdefgh' });
     expect(replay.status).toBe(200);
     expect(replay.body.payments).toHaveLength(1);
 
     expect((await w.cashier.post(`${w.base}/orders/${order.id}/payments`, { method: 'CASH', amountCents: 99999 })).status).toBe(400);
-    expect((await w.waiter.post(`${w.base}/orders/${order.id}/payments`, { method: 'CASH', amountCents: 1541 })).status).toBe(403);
+    expect((await w.waiter.post(`${w.base}/orders/${order.id}/payments`, { method: 'CASH', amountCents: 26700 })).status).toBe(403);
 
-    const done = await w.cashier.post(`${w.base}/orders/${order.id}/payments`, { method: 'CASH', amountCents: 1541, tipCents: 200 });
+    const done = await w.cashier.post(`${w.base}/orders/${order.id}/payments`, { method: 'UPI', amountCents: 26700, tipCents: 200 });
     expect(done.body.status).toBe('COMPLETED');
+    expect(done.body.invoiceNumber).toMatch(/^INV\/\d{4}\/000001$/);
     expect(done.body.tipCents).toBe(200);
     expect(done.body.balanceCents).toBe(0);
 
@@ -115,14 +129,19 @@ describe('dine-in order lifecycle', () => {
     // Reports reflect the sale
     const report = (await w.owner.get(`${w.base}/reports/sales`)).body;
     expect(report.summary.orders).toBe(1);
-    expect(report.summary.totalCents).toBe(2541);
+    expect(report.summary.totalCents).toBe(27700);
+    expect(report.gst).toHaveLength(1);
+    expect(report.gst[0].rateBps).toBe(500);
+    expect(report.gst[0].cgstCents + report.gst[0].sgstCents).toBe(report.gst[0].taxCents);
     expect(report.summary.tipCents).toBe(200);
     expect(report.voids.count).toBe(1);
-    expect(report.topItems[0].name).toBe('Burger');
+    expect(report.topItems[0].name).toBe('Masala Dosa');
 
     const csv = await w.owner.get(`${w.base}/reports/orders.csv`);
     expect(csv.status).toBe(200);
-    expect(String(csv.body).split('\n')).toHaveLength(2);
+    const csvLines = String(csv.body).split('\n');
+    expect(csvLines).toHaveLength(2);
+    expect(csvLines[1]).toContain(done.body.invoiceNumber);
   });
 
   it('handles takeaway orders, discounts, cancellations and refunds', async () => {
@@ -131,17 +150,17 @@ describe('dine-in order lifecycle', () => {
       type: 'TAKEAWAY', customerName: 'Sam', items: [{ menuItemId: w.burger.id, quantity: 1 }],
     })).body;
     expect(o.serviceChargeCents).toBe(0);
-    expect(o.totalCents).toBe(1100);
+    expect(o.totalCents).toBe(10500);
 
     // Cashier limited to 20% discount
     expect((await w.cashier.post(`${w.base}/orders/${o.id}/discount`, { discount: { type: 'PERCENT', bps: 5000 } })).status).toBe(403);
     const disc = await w.cashier.post(`${w.base}/orders/${o.id}/discount`, { discount: { type: 'PERCENT', bps: 1000 }, reason: 'Regular' });
-    expect(disc.body.discountCents).toBe(100);
-    expect(disc.body.totalCents).toBe(990);
+    expect(disc.body.discountCents).toBe(1000);
+    expect(disc.body.totalCents).toBe(9500); // ₹90 + ₹4.50 GST = ₹94.50, rounded to ₹95
 
     // Pending items can be edited and removed freely
     const line = disc.body.items[0];
-    expect((await w.cashier.patch(`${w.base}/orders/${o.id}/items/${line.id}`, { quantity: 3 })).body.subtotalCents).toBe(3000);
+    expect((await w.cashier.patch(`${w.base}/orders/${o.id}/items/${line.id}`, { quantity: 3 })).body.subtotalCents).toBe(30000);
 
     await w.cashier.post(`${w.base}/orders/${o.id}/fire`);
     await w.cashier.post(`${w.base}/orders/${o.id}/payments`, { method: 'CARD', amountCents: 500 });
@@ -172,6 +191,23 @@ describe('dine-in order lifecycle', () => {
     // Chef 86's the soda
     expect((await w.chef.patch(`${w.base}/menu/items/${w.soda.id}/availability`, { isAvailable: false })).status).toBe(200);
     expect((await w.waiter.post(`${w.base}/orders/${o.id}/items`, { items: [{ menuItemId: w.soda.id, quantity: 1 }] })).status).toBe(409);
+  });
+
+  it('numbers GST invoices sequentially and only for settled orders', async () => {
+    const w = await world();
+    const invoices: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const o = (await w.cashier.post(`${w.base}/orders`, { type: 'TAKEAWAY', items: [{ menuItemId: w.soda.id, quantity: 1 }] })).body;
+      expect(o.invoiceNumber).toBeNull();
+      await w.cashier.post(`${w.base}/orders/${o.id}/fire`);
+      const paid = await w.cashier.post(`${w.base}/orders/${o.id}/payments`, { method: 'CASH', amountCents: o.totalCents });
+      invoices.push(paid.body.invoiceNumber);
+    }
+    expect(invoices.map((n) => n.slice(-6))).toEqual(['000001', '000002', '000003']);
+    // ₹35 + ₹1.75 GST = ₹36.75 -> rounded to ₹37
+    const found = await w.cashier.get(`${w.base}/orders?q=${encodeURIComponent(invoices[1]!)}&status=COMPLETED`);
+    expect(found.body.data).toHaveLength(1);
+    expect(found.body.data[0].totalCents).toBe(3700);
   });
 
   it('assigns unique order numbers under concurrency', async () => {

@@ -1,6 +1,6 @@
 import type { ItemStatus, OrderStatus, ReservationStatus, TableStatus } from '@tablewise/shared';
 import { Badge, type Tone } from './ui';
-import { titleCase } from '../lib/format';
+import { useI18n } from '../i18n';
 
 export const tableTone: Record<TableStatus, { tone: Tone; card: string }> = {
   AVAILABLE: { tone: 'green', card: 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100' },
@@ -16,8 +16,19 @@ const itemTone: Record<ItemStatus, Tone> = {
 const orderTone: Record<OrderStatus, Tone> = { OPEN: 'blue', COMPLETED: 'green', CANCELLED: 'red' };
 const resTone: Record<ReservationStatus, Tone> = { BOOKED: 'blue', SEATED: 'purple', COMPLETED: 'green', CANCELLED: 'gray', NO_SHOW: 'red' };
 
-export const TableStatusBadge = ({ status }: { status: TableStatus }) => <Badge tone={tableTone[status].tone}>{titleCase(status)}</Badge>;
-export const ItemStatusBadge = ({ status }: { status: ItemStatus }) =>
-  <Badge tone={itemTone[status]}>{status === 'PENDING' ? 'Not sent' : titleCase(status)}</Badge>;
-export const OrderStatusBadge = ({ status }: { status: OrderStatus }) => <Badge tone={orderTone[status]}>{titleCase(status)}</Badge>;
-export const ReservationStatusBadge = ({ status }: { status: ReservationStatus }) => <Badge tone={resTone[status]}>{titleCase(status)}</Badge>;
+export function TableStatusBadge({ status }: { status: TableStatus }) {
+  const { t } = useI18n();
+  return <Badge tone={tableTone[status].tone}>{t(`tableStatus.${status}`)}</Badge>;
+}
+export function ItemStatusBadge({ status }: { status: ItemStatus }) {
+  const { t } = useI18n();
+  return <Badge tone={itemTone[status]}>{t(`itemStatus.${status}`)}</Badge>;
+}
+export function OrderStatusBadge({ status }: { status: OrderStatus }) {
+  const { t } = useI18n();
+  return <Badge tone={orderTone[status]}>{t(`orderStatus.${status}`)}</Badge>;
+}
+export function ReservationStatusBadge({ status }: { status: ReservationStatus }) {
+  const { t } = useI18n();
+  return <Badge tone={resTone[status]}>{t(`resStatus.${status}`)}</Badge>;
+}

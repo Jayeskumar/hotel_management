@@ -1,5 +1,5 @@
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
-import { computeBill, type CreateOrderInput } from '@tablewise/shared';
+import { computeBill, financialYear, type CreateOrderInput } from '@tablewise/shared';
 import type { DB, Tx } from '../db/client.js';
 import {
   diningTables, inventoryItems, menuItems, orderItems, orders, outlets, payments, recipeLines,
@@ -15,12 +15,12 @@ export async function lockOrder(tx: Tx, outletId: string, orderId: string): Prom
   const [order] = await tx.select().from(orders)
     .where(and(eq(orders.id, orderId), eq(orders.outletId, outletId)))
     .for('update');
-  if (!order) throw notFound('Order');
+  if (!order) throw notFound('entity.order');
   return order;
 }
 
 export function assertOpen(order: OrderRow) {
-  if (order.status !== 'OPEN') throw conflict(`Order is ${order.status.toLowerCase()}`);
+  if (order.status !== 'OPEN') throw conflict('order.notOpen', { status: order.status });
 }
 
 /** Resolve requested lines against the live menu and snapshot name/price/tax/station. */
@@ -32,18 +32,19 @@ export async function buildLines(tx: Tx, outletId: string, outletTaxBps: number,
   const byId = new Map(menu.map((m) => [m.id, m]));
   return lines.map((l) => {
     const m = byId.get(l.menuItemId);
-    if (!m || m.isArchived) throw badRequest('One or more menu items no longer exist');
-    if (!m.isAvailable) throw conflict(`${m.name} is currently unavailable`);
+    if (!m || m.isArchived) throw badRequest('menu.itemsGone');
+    if (!m.isAvailable) throw conflict('menu.itemUnavailable', { item: m.name });
     const mods: Modifier[] = l.modifiers.map((name) => {
       const mod = m.modifiers.find((x) => x.name === name);
-      if (!mod) throw badRequest(`Unknown modifier "${name}" for ${m.name}`);
-      return mod;
+      if (!mod) throw badRequest('menu.unknownModifier', { modifier: name, item: m.name });
+      return { name: mod.name, nameTa: mod.nameTa ?? null, priceCents: mod.priceCents };
     });
     return {
       orderId,
       outletId,
       menuItemId: m.id,
       name: m.name,
+      nameTa: m.nameTa,
       station: m.station,
       unitPriceCents: m.priceCents,
       modifiers: mods,
@@ -59,7 +60,7 @@ export async function buildLines(tx: Tx, outletId: string, outletTaxBps: number,
 /** Recompute and persist totals from the non-voided lines. Bumps the optimistic version. */
 export async function recalc(tx: Tx, orderId: string): Promise<OrderRow> {
   const [order] = await tx.select().from(orders).where(eq(orders.id, orderId));
-  if (!order) throw notFound('Order');
+  if (!order) throw notFound('entity.order');
   const lines = await tx.select().from(orderItems)
     .where(and(eq(orderItems.orderId, orderId), ne(orderItems.status, 'VOIDED')));
   const totals = computeBill({
@@ -68,6 +69,7 @@ export async function recalc(tx: Tx, orderId: string): Promise<OrderRow> {
     })),
     discount: order.discount,
     serviceChargeBps: order.serviceChargeBps,
+    roundOff: order.roundOff,
   });
   const [updated] = await tx.update(orders)
     .set({ ...totals, version: sql`${orders.version} + 1` })
@@ -80,19 +82,19 @@ export async function createOrder(db: DB, outletId: string, userId: string, inpu
     const [outlet] = await tx.update(outlets)
       .set({ orderSeq: sql`${outlets.orderSeq} + 1` })
       .where(eq(outlets.id, outletId))
-      .returning({ seq: outlets.orderSeq, taxRateBps: outlets.taxRateBps, serviceChargeBps: outlets.serviceChargeBps });
-    if (!outlet) throw notFound('Outlet');
+      .returning({ seq: outlets.orderSeq, taxRateBps: outlets.taxRateBps, serviceChargeBps: outlets.serviceChargeBps, roundOff: outlets.roundOff });
+    if (!outlet) throw notFound('entity.outlet');
 
     let tableId: string | null = null;
     if (input.type === 'DINE_IN') {
       const [table] = await tx.select().from(diningTables)
         .where(and(eq(diningTables.id, input.tableId!), eq(diningTables.outletId, outletId), eq(diningTables.isActive, true)))
         .for('update');
-      if (!table) throw notFound('Table');
-      if (table.status === 'OUT_OF_SERVICE') throw conflict(`Table ${table.label} is out of service`);
+      if (!table) throw notFound('entity.table');
+      if (table.status === 'OUT_OF_SERVICE') throw conflict('table.outOfService', { table: table.label });
       const open = await tx.select({ id: orders.id }).from(orders)
         .where(and(eq(orders.tableId, table.id), eq(orders.status, 'OPEN')));
-      if (open.length) throw conflict(`Table ${table.label} already has an open order`);
+      if (open.length) throw conflict('table.hasOpenOrder', { table: table.label });
       await tx.update(diningTables).set({ status: 'OCCUPIED', statusChangedAt: new Date() }).where(eq(diningTables.id, table.id));
       tableId = table.id;
     }
@@ -108,6 +110,7 @@ export async function createOrder(db: DB, outletId: string, userId: string, inpu
       notes: input.notes ?? null,
       waiterId: userId,
       serviceChargeBps: input.type === 'DINE_IN' ? outlet.serviceChargeBps : 0,
+      roundOff: outlet.roundOff,
     }).returning();
 
     const lines = await buildLines(tx, outletId, outlet.taxRateBps, input.items, userId, order!.id);
@@ -133,7 +136,7 @@ export async function fireOrder(tx: Tx, outletId: string, orderId: string) {
     .set({ status: 'QUEUED', firedAt: new Date() })
     .where(and(eq(orderItems.orderId, orderId), eq(orderItems.status, 'PENDING')))
     .returning({ id: orderItems.id });
-  if (!fired.length) throw conflict('There are no new items to send');
+  if (!fired.length) throw conflict('order.noNewItems');
   await recalc(tx, orderId);
   return fired.length;
 }
@@ -178,7 +181,7 @@ export async function releaseTable(tx: Tx, order: OrderRow) {
 
 export async function getOrderDetail(db: DB | Tx, outletId: string, orderId: string) {
   const [order] = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.outletId, outletId)));
-  if (!order) throw notFound('Order');
+  if (!order) throw notFound('entity.order');
   const [items, pays, table] = await Promise.all([
     db.select().from(orderItems).where(eq(orderItems.orderId, orderId)).orderBy(orderItems.createdAt),
     db.select().from(payments).where(eq(payments.orderId, orderId)).orderBy(payments.createdAt),
@@ -187,4 +190,21 @@ export async function getOrderDetail(db: DB | Tx, outletId: string, orderId: str
       : Promise.resolve(null),
   ]);
   return { ...order, table, items, payments: pays, balanceCents: Math.max(0, order.totalCents - order.paidCents) };
+}
+
+/**
+ * Allocate the next GST invoice number for the outlet. Serials restart at 1 each
+ * Indian financial year (April-March) and the outlet row lock keeps them gap-free
+ * and unique, e.g. INV/2526/000123 (max 16 chars as required by GST rules).
+ */
+export async function assignInvoiceNumber(tx: Tx, outletId: string, orderId: string): Promise<string> {
+  const [o] = await tx.select({ timezone: outlets.timezone }).from(outlets).where(eq(outlets.id, outletId));
+  const fy = financialYear(new Date(), o?.timezone ?? 'Asia/Kolkata');
+  const [row] = await tx.update(outlets).set({
+    invoiceSeq: sql`case when ${outlets.invoiceFy} = ${fy} then ${outlets.invoiceSeq} + 1 else 1 end`,
+    invoiceFy: fy,
+  }).where(eq(outlets.id, outletId)).returning({ seq: outlets.invoiceSeq, prefix: outlets.invoicePrefix });
+  const invoiceNumber = `${row!.prefix}/${fy}/${String(row!.seq).padStart(6, '0')}`;
+  await tx.update(orders).set({ invoiceNumber }).where(eq(orders.id, orderId));
+  return invoiceNumber;
 }

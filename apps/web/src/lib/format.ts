@@ -1,5 +1,17 @@
-export function money(cents: number, currency = 'USD') {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(cents / 100);
+import { getLocale } from '../i18n';
+
+/** ₹ amounts with Indian digit grouping (1,23,456.00). */
+export function money(cents: number, currency = 'INR') {
+  return new Intl.NumberFormat(getLocale(), { style: 'currency', currency }).format(cents / 100);
+}
+
+/** Compact Indian notation for chart axes, e.g. ₹1.2L, ₹3.4Cr. */
+export function moneyCompact(cents: number) {
+  const r = cents / 100;
+  if (Math.abs(r) >= 1e7) return `₹${(r / 1e7).toFixed(1)}Cr`;
+  if (Math.abs(r) >= 1e5) return `₹${(r / 1e5).toFixed(1)}L`;
+  if (Math.abs(r) >= 1e3) return `₹${(r / 1e3).toFixed(1)}K`;
+  return `₹${Math.round(r)}`;
 }
 
 export function toCents(value: string): number {
@@ -24,18 +36,12 @@ export function elapsed(iso: string | null | undefined, now = Date.now()): strin
 
 export function dateTime(iso: string | null | undefined, timeZone?: string) {
   if (!iso) return '—';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso));
+  return new Intl.DateTimeFormat(getLocale(), { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso));
 }
 
 export function time(iso: string | null | undefined, timeZone?: string) {
   if (!iso) return '—';
-  return new Intl.DateTimeFormat(undefined, { timeStyle: 'short', timeZone }).format(new Date(iso));
-}
-
-const ACRONYMS = new Set(['UPI', 'SKU', 'KDS']);
-export function titleCase(s: string) {
-  if (ACRONYMS.has(s)) return s;
-  return s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return new Intl.DateTimeFormat(getLocale(), { timeStyle: 'short', timeZone }).format(new Date(iso));
 }
 
 export function bpsToPct(bps: number) {

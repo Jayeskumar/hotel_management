@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import type { Permission } from '@tablewise/shared';
 import { useAuth } from './lib/auth';
+import { useI18n } from './i18n';
 import { Layout } from './components/Layout';
 import { EmptyState, PageLoader } from './components/ui';
 import { LoginPage } from './pages/Login';
@@ -22,14 +23,16 @@ const Register = lazy(() => import('./pages/Register'));
 
 function Guard({ perms, children }: { perms?: Permission[]; children: ReactNode }) {
   const { can } = useAuth();
+  const { t } = useI18n();
   if (perms && !perms.some(can)) {
-    return <EmptyState title="Access restricted" description="Your role doesn't have access to this page. Ask a manager if you need it." />;
+    return <EmptyState title={t('common.accessRestricted')} description={t('common.accessRestrictedDesc')} />;
   }
   return <>{children}</>;
 }
 
 export function App() {
   const { session, loading, outlet } = useAuth();
+  const { t } = useI18n();
   if (loading) return <PageLoader />;
 
   if (!session) {
@@ -43,7 +46,7 @@ export function App() {
     );
   }
   if (!outlet) {
-    return <EmptyState title="No outlet assigned" description="Your account isn't assigned to any active outlet yet. Contact your administrator." />;
+    return <EmptyState title={t('common.noOutlet')} description={t('common.noOutletDesc')} />;
   }
 
   return (

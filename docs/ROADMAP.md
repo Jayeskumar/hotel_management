@@ -3,10 +3,15 @@
 What exists today is a production-shaped core. Before selling to paying customers, plan for:
 
 ## Must-have before first paid customer
-- **Payment gateway integration** (Stripe Terminal / Adyen / Razorpay) — today payments are
-  *recorded*, not *processed*. Card data must never touch our servers (use terminal SDKs / hosted fields).
-- **Fiscal / tax compliance per market** — e.g. GST invoices & HSN codes (India), VAT receipts
-  (EU/UK), fiscal printers where mandated. Invoice numbering separate from order numbers.
+- **Payment confirmation** — the UPI QR is generated locally and staff confirm payment by eye. Integrate
+  a payment provider (Razorpay / PhonePe / Paytm / Pine Labs) for automatic UPI confirmation via
+  webhook and for card terminals. Card data must never touch our servers.
+- **Chartered accountant review of GST handling** — rates (5% standalone vs 18% for restaurants in
+  hotels with room tariff above ₹7,500), composition-scheme outlets (no GST collected, "composition
+  taxable person" on bill), credit notes for post-invoice refunds, and B2B invoices with buyer GSTIN.
+- **Thermal printing** — browser printing renders Tamil correctly. Direct ESC/POS printing needs Tamil
+  rendered as an image, because most thermal printers have no built-in Tamil font.
+- **Tamil copy review** by a native speaker from the target region before launch.
 - **Email delivery** — password reset, staff invitations (replace admin-set temporary passwords).
 - **Backups & DR** — managed Postgres with PITR, documented restore drill.
 - **Security** — external penetration test, dependency scanning in CI, CSP headers on the web
@@ -15,6 +20,8 @@ What exists today is a production-shaped core. Before selling to paying customer
 - **Monitoring** — error tracking (e.g. Sentry), metrics, uptime alerts, on-call runbook.
 
 ## Product
+- Swiggy / Zomato order integration, Tally / Zoho Books export, WhatsApp bill sharing
+- More languages (Malayalam, Telugu, Kannada, Hindi) — the i18n layer already supports adding dictionaries
 - Shift / cash-drawer management (open/close till, X/Z reports, cash variance)
 - Printer routing (kitchen ticket printers per station, ESC/POS over network)
 - Offline mode for POS (queue orders locally, sync when back online)

@@ -1,5 +1,5 @@
 {
-  "id": "1e3d913f-361c-4dec-992d-1265ca4e47f8",
+  "id": "02a24852-4a1b-4833-bff6-1fc94d43319c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -551,6 +551,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "name_ta": {
+          "name": "name_ta",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "integer",
@@ -639,6 +645,12 @@
           "type": "varchar(120)",
           "primaryKey": false,
           "notNull": true
+        },
+        "name_ta": {
+          "name": "name_ta",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": false
         },
         "description": {
           "name": "description",
@@ -822,6 +834,12 @@
           "type": "varchar(120)",
           "primaryKey": false,
           "notNull": true
+        },
+        "name_ta": {
+          "name": "name_ta",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": false
         },
         "station": {
           "name": "station",
@@ -1119,6 +1137,26 @@
           "notNull": true,
           "default": 0
         },
+        "round_off": {
+          "name": "round_off",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "round_off_cents": {
+          "name": "round_off_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "invoice_number": {
+          "name": "invoice_number",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "subtotal_cents": {
           "name": "subtotal_cents",
           "type": "integer",
@@ -1221,6 +1259,27 @@
             },
             {
               "expression": "order_number",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "orders_outlet_invoice_uq": {
+          "name": "orders_outlet_invoice_uq",
+          "columns": [
+            {
+              "expression": "outlet_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "invoice_number",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1437,21 +1496,21 @@
           "type": "varchar(3)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'USD'"
+          "default": "'INR'"
         },
         "timezone": {
           "name": "timezone",
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'UTC'"
+          "default": "'Asia/Kolkata'"
         },
         "tax_rate_bps": {
           "name": "tax_rate_bps",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": 0
+          "default": 500
         },
         "service_charge_bps": {
           "name": "service_charge_bps",
@@ -1463,6 +1522,57 @@
         "receipt_footer": {
           "name": "receipt_footer",
           "type": "varchar(500)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "legal_name": {
+          "name": "legal_name",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "gstin": {
+          "name": "gstin",
+          "type": "varchar(15)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fssai_number": {
+          "name": "fssai_number",
+          "type": "varchar(14)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "upi_vpa": {
+          "name": "upi_vpa",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "round_off": {
+          "name": "round_off",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "invoice_prefix": {
+          "name": "invoice_prefix",
+          "type": "varchar(6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'INV'"
+        },
+        "invoice_seq": {
+          "name": "invoice_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "invoice_fy": {
+          "name": "invoice_fy",
+          "type": "varchar(4)",
           "primaryKey": false,
           "notNull": false
         },
@@ -2465,8 +2575,8 @@
       "schema": "public",
       "values": [
         "CASH",
-        "CARD",
         "UPI",
+        "CARD",
         "WALLET",
         "OTHER"
       ]
@@ -2506,9 +2616,10 @@
       "schema": "public",
       "values": [
         "KITCHEN",
-        "BAR",
-        "DESSERT",
-        "GRILL"
+        "TIFFIN",
+        "TANDOOR",
+        "BEVERAGE",
+        "SWEETS"
       ]
     },
     "public.stock_reason": {

@@ -23,10 +23,11 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export const ITEM_STATUSES = ['PENDING', 'QUEUED', 'PREPARING', 'READY', 'SERVED', 'VOIDED'] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
-export const STATIONS = ['KITCHEN', 'BAR', 'DESSERT', 'GRILL'] as const;
+/** Preparation counters typical of a South Indian restaurant. */
+export const STATIONS = ['KITCHEN', 'TIFFIN', 'TANDOOR', 'BEVERAGE', 'SWEETS'] as const;
 export type Station = (typeof STATIONS)[number];
 
-export const PAYMENT_METHODS = ['CASH', 'CARD', 'UPI', 'WALLET', 'OTHER'] as const;
+export const PAYMENT_METHODS = ['CASH', 'UPI', 'CARD', 'WALLET', 'OTHER'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 export const PAYMENT_STATUSES = ['COMPLETED', 'REFUNDED'] as const;

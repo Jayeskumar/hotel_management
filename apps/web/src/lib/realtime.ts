@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { SOCKET_EVENTS } from '@tablewise/shared';
 import { tokenStore } from './api';
+import { translate } from '../i18n';
 
 /**
  * Connects to the realtime gateway for the current outlet and invalidates the
@@ -36,7 +37,7 @@ export function useRealtime(outletId: string | undefined) {
     socket.on(SOCKET_EVENTS.MENU_UPDATED, () => inv('menu'));
     socket.on(SOCKET_EVENTS.INVENTORY_LOW, (items: { name: string }[]) => {
       inv('inventory', 'dashboard');
-      toast.warning(`Low stock: ${items.map((i) => i.name).join(', ')}`);
+      toast.warning(translate('inv.lowToast', { items: items.map((i) => i.name).join(', ') }));
     });
     return () => { socket.disconnect(); };
   }, [outletId, qc]);

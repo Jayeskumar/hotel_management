@@ -7,6 +7,7 @@ import rateLimit from '@fastify/rate-limit';
 import { sql } from 'drizzle-orm';
 import type { Config } from './config.js';
 import type { DB } from './db/client.js';
+import { formatMessage, type MessageKey, type MessageParams } from '@tablewise/shared';
 import { AppError } from './lib/errors.js';
 import { Realtime } from './lib/realtime.js';
 import authPlugin from './plugins/auth.js';
@@ -63,27 +64,23 @@ export async function buildApp(opts: { config: Config; db: DB; logger?: boolean 
   await app.register(authPlugin);
 
   app.setErrorHandler((err, req, reply) => {
+    const send = (status: number, code: string, key: MessageKey, params?: MessageParams, extra: Record<string, unknown> = {}) =>
+      reply.code(status).send({ error: { code, key, params, message: formatMessage('en', key, params), ...extra } });
     if (err instanceof AppError) {
-      return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message, details: err.details } });
+      return send(err.statusCode, err.code, err.key, err.params, err.details ? { details: err.details } : {});
     }
     const e = err as { statusCode?: number; code?: string; message: string };
-    if (e.statusCode === 429) {
-      return reply.code(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many requests, slow down' } });
-    }
-    if (e.statusCode && e.statusCode < 500) {
-      return reply.code(e.statusCode).send({ error: { code: e.code ?? 'BAD_REQUEST', message: e.message } });
-    }
+    if (e.statusCode === 429) return send(429, 'RATE_LIMITED', 'error.rateLimited');
+    if (e.statusCode && e.statusCode < 500) return send(e.statusCode, e.code ?? 'BAD_REQUEST', 'error.badRequest');
     // Postgres unique violation -> 409
     const pgCode = (err as { code?: string; cause?: { code?: string } }).cause?.code ?? (err as { code?: string }).code;
-    if (pgCode === '23505') {
-      return reply.code(409).send({ error: { code: 'CONFLICT', message: 'A record with these details already exists' } });
-    }
+    if (pgCode === '23505') return send(409, 'CONFLICT', 'error.duplicate');
     req.log.error({ err }, 'unhandled error');
-    return reply.code(500).send({ error: { code: 'INTERNAL', message: 'Something went wrong', requestId: req.id } });
+    return send(500, 'INTERNAL', 'error.internal', undefined, { requestId: req.id });
   });
 
-  app.setNotFoundHandler((req, reply) => {
-    reply.code(404).send({ error: { code: 'NOT_FOUND', message: `Route ${req.method} ${req.url} not found` } });
+  app.setNotFoundHandler((_req, reply) => {
+    reply.code(404).send({ error: { code: 'NOT_FOUND', key: 'error.notFound', params: { entity: 'entity.route' }, message: 'Page not found' } });
   });
 
   app.get('/health', async () => ({ status: 'ok' }));

@@ -55,11 +55,11 @@ export default async function organizationRoutes(app: FastifyInstance) {
 
   async function assertCanAssign(req: FastifyRequest, role: string | undefined, outletIds: string[] | undefined) {
     if (role && !assignableRoles(req.user.role).includes(role as never)) {
-      throw forbidden(`You cannot assign the ${role} role`);
+      throw forbidden('staff.cannotAssignRole', { role });
     }
     if (outletIds) {
       const allowed = new Set(await managedOutletIds(req));
-      if (outletIds.some((id) => !allowed.has(id))) throw forbidden('You cannot assign staff to that outlet');
+      if (outletIds.some((id) => !allowed.has(id))) throw forbidden('staff.cannotAssignOutlet');
     }
   }
 
@@ -84,7 +84,7 @@ export default async function organizationRoutes(app: FastifyInstance) {
     const input = parse(createStaffSchema, req.body);
     await assertCanAssign(req, input.role, input.outletIds);
     const dup = await app.db.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${input.email}`);
-    if (dup.length) throw conflict('A user with this email already exists');
+    if (dup.length) throw conflict('auth.emailExists');
     const passwordHash = await hashPassword(input.password);
     const created = await app.db.transaction(async (tx) => {
       const [u] = await tx.insert(users).values({
@@ -103,16 +103,16 @@ export default async function organizationRoutes(app: FastifyInstance) {
     const input = parse(updateStaffSchema, req.body);
     const [target] = await app.db.select().from(users)
       .where(and(eq(users.id, userId), eq(users.organizationId, req.user.org)));
-    if (!target) throw notFound('User');
-    if (!assignableRoles(req.user.role).includes(target.role)) throw forbidden('You cannot modify this user');
+    if (!target) throw notFound('entity.user');
+    if (!assignableRoles(req.user.role).includes(target.role)) throw forbidden('staff.cannotModify');
     if (target.id === req.user.sub && (input.isActive === false || input.role)) {
-      throw badRequest('You cannot change your own role or deactivate yourself');
+      throw badRequest('staff.selfChange');
     }
     await assertCanAssign(req, input.role, input.outletIds);
     if (req.user.role !== 'OWNER') {
       const allowed = new Set(await managedOutletIds(req));
       const current = await app.db.select().from(userOutlets).where(eq(userOutlets.userId, userId));
-      if (!current.some((l) => allowed.has(l.outletId))) throw forbidden('You cannot modify this user');
+      if (!current.some((l) => allowed.has(l.outletId))) throw forbidden('staff.cannotModify');
     }
 
     return app.db.transaction(async (tx) => {

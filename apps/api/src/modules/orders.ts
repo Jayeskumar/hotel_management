@@ -2,17 +2,17 @@ import { and, desc, eq, gte, ilike, lte, or, sql, type SQL } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
-  addItemsSchema, cancelOrderSchema, can, createOrderSchema, discountSchema, ITEM_TRANSITIONS,
+  addItemsSchema, cancelOrderSchema, serviceChargeSchema, can, createOrderSchema, discountSchema, ITEM_TRANSITIONS,
   itemStatusSchema, ORDER_STATUSES, ORDER_TYPES, paginationSchema, paymentSchema, refundSchema,
   SOCKET_EVENTS, updateItemQtySchema, updateOrderSchema, voidItemSchema,
 } from '@tablewise/shared';
-import { diningTables, orderItems, orders, payments, users } from '../db/schema.js';
+import { diningTables, orderItems, orders, outlets, payments, users } from '../db/schema.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
 import { outletIdOf, paged } from '../lib/http.js';
 import { audit } from '../lib/audit.js';
 import {
-  addItems, assertOpen, createOrder, deductInventory, fireOrder, getOrderDetail, lockOrder, recalc, releaseTable,
+  addItems, assertOpen, assignInvoiceNumber, createOrder, deductInventory, fireOrder, getOrderDetail, lockOrder, recalc, releaseTable,
 } from './orders.service.js';
 
 const listQuery = paginationSchema.extend({
@@ -46,7 +46,7 @@ export default async function orderRoutes(app: FastifyInstance) {
       const n = Number(q.q.replace(/^#/, ''));
       const term = `%${q.q.replace(/[%_]/g, '')}%`;
       where.push(or(
-        ilike(orders.customerName, term), ilike(orders.customerPhone, term),
+        ilike(orders.customerName, term), ilike(orders.customerPhone, term), ilike(orders.invoiceNumber, term),
         ...(Number.isInteger(n) && n > 0 ? [eq(orders.orderNumber, n)] : []),
       )!);
     }
@@ -93,14 +93,14 @@ export default async function orderRoutes(app: FastifyInstance) {
       if (input.notes !== undefined) patch.notes = input.notes;
       // Table transfer for dine-in orders.
       if (input.tableId !== undefined && input.tableId !== order.tableId) {
-        if (order.type !== 'DINE_IN' || !input.tableId) throw badRequest('Only dine-in orders can be moved between tables');
+        if (order.type !== 'DINE_IN' || !input.tableId) throw badRequest('order.onlyDineInMove');
         const [target] = await tx.select().from(diningTables)
           .where(and(eq(diningTables.id, input.tableId), eq(diningTables.outletId, outletId), eq(diningTables.isActive, true)))
           .for('update');
-        if (!target) throw notFound('Table');
+        if (!target) throw notFound('entity.table');
         const busy = await tx.select({ id: orders.id }).from(orders)
           .where(and(eq(orders.tableId, target.id), eq(orders.status, 'OPEN')));
-        if (busy.length) throw conflict(`Table ${target.label} already has an open order`);
+        if (busy.length) throw conflict('table.hasOpenOrder', { table: target.label });
         await releaseTable(tx, order);
         await tx.update(diningTables).set({ status: 'OCCUPIED', statusChangedAt: new Date() }).where(eq(diningTables.id, target.id));
         patch.tableId = target.id;
@@ -130,8 +130,8 @@ export default async function orderRoutes(app: FastifyInstance) {
       const order = await lockOrder(tx, outletId, id);
       assertOpen(order);
       const [item] = await tx.select().from(orderItems).where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, id)));
-      if (!item) throw notFound('Order item');
-      if (item.status !== 'PENDING') throw conflict('Items already sent to the kitchen cannot be changed; void instead');
+      if (!item) throw notFound('entity.orderItem');
+      if (item.status !== 'PENDING') throw conflict('order.itemSent');
       await tx.update(orderItems).set({ quantity }).where(eq(orderItems.id, itemId));
       await recalc(tx, id);
     });
@@ -148,12 +148,12 @@ export default async function orderRoutes(app: FastifyInstance) {
       const order = await lockOrder(tx, outletId, id);
       assertOpen(order);
       const [item] = await tx.select().from(orderItems).where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, id)));
-      if (!item) throw notFound('Order item');
-      if (item.status === 'VOIDED') throw conflict('Item is already voided');
+      if (!item) throw notFound('entity.orderItem');
+      if (item.status === 'VOIDED') throw conflict('order.itemVoided');
       if (item.status === 'PENDING') {
         await tx.delete(orderItems).where(eq(orderItems.id, itemId));
       } else {
-        if (!can(req.user.role, 'orders:void_item')) throw forbidden('Voiding a sent item requires manager approval');
+        if (!can(req.user.role, 'orders:void_item')) throw forbidden('order.voidNeedsManager');
         const { reason } = parse(voidItemSchema, req.body);
         await tx.update(orderItems).set({ status: 'VOIDED', voidReason: reason }).where(eq(orderItems.id, itemId));
         await audit(tx, req, {
@@ -163,7 +163,7 @@ export default async function orderRoutes(app: FastifyInstance) {
         kitchen = true;
       }
       const updated = await recalc(tx, id);
-      if (updated.paidCents > updated.totalCents) throw conflict('Cannot void below the amount already paid; refund first');
+      if (updated.paidCents > updated.totalCents) throw conflict('order.voidBelowPaid');
     });
     notify(outletId, id, { kitchen });
     return getOrderDetail(app.db, outletId, id);
@@ -185,7 +185,7 @@ export default async function orderRoutes(app: FastifyInstance) {
     const [item] = await app.db.update(orderItems).set({ status: 'SERVED', servedAt: new Date() })
       .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, id), eq(orderItems.outletId, outletId), eq(orderItems.status, 'READY')))
       .returning();
-    if (!item) throw conflict('Only items that are ready can be marked served');
+    if (!item) throw conflict('order.onlyReadyServed');
     notify(outletId, id, { kitchen: true });
     return getOrderDetail(app.db, outletId, id);
   });
@@ -200,12 +200,31 @@ export default async function orderRoutes(app: FastifyInstance) {
       // Cashiers may discount up to 20%; larger discounts need a manager.
       if (input.discount && !can(req.user.role, 'orders:void_item')) {
         const pct = input.discount.type === 'PERCENT' ? input.discount.bps : (input.discount.amountCents / Math.max(1, order.subtotalCents)) * 10_000;
-        if (pct > 2000) throw forbidden('Discounts above 20% require a manager');
+        if (pct > 2000) throw forbidden('order.discountLimit');
       }
       await tx.update(orders).set({ discount: input.discount, discountReason: input.reason ?? null }).where(eq(orders.id, id));
       const updated = await recalc(tx, id);
-      if (updated.paidCents > updated.totalCents) throw conflict('Discount would bring the total below the amount already paid');
+      if (updated.paidCents > updated.totalCents) throw conflict('order.discountBelowPaid');
       await audit(tx, req, { action: 'order.discount_applied', entityType: 'order', entityId: id, outletId, metadata: { ...input, discountCents: updated.discountCents } });
+    });
+    notify(outletId, id);
+    return getOrderDetail(app.db, outletId, id);
+  });
+
+  /** Service charge is optional for guests in India; staff can remove or restore it per bill. */
+  app.post('/orders/:id/service-charge', perm('orders:discount'), async (req) => {
+    const outletId = outletIdOf(req);
+    const { id } = params(req);
+    const { enabled } = parse(serviceChargeSchema, req.body);
+    await app.db.transaction(async (tx) => {
+      const order = await lockOrder(tx, outletId, id);
+      assertOpen(order);
+      const [outlet] = await tx.select({ bps: outlets.serviceChargeBps }).from(outlets).where(eq(outlets.id, outletId));
+      const serviceChargeBps = enabled && order.type === 'DINE_IN' ? outlet!.bps : 0;
+      await tx.update(orders).set({ serviceChargeBps }).where(eq(orders.id, id));
+      const updated = await recalc(tx, id);
+      if (updated.paidCents > updated.totalCents) throw conflict('order.discountBelowPaid');
+      await audit(tx, req, { action: enabled ? 'order.service_charge_added' : 'order.service_charge_removed', entityType: 'order', entityId: id, outletId });
     });
     notify(outletId, id);
     return getOrderDetail(app.db, outletId, id);
@@ -218,7 +237,7 @@ export default async function orderRoutes(app: FastifyInstance) {
     await app.db.transaction(async (tx) => {
       const order = await lockOrder(tx, outletId, id);
       assertOpen(order);
-      if (order.paidCents > 0) throw conflict('Refund payments before cancelling this order');
+      if (order.paidCents > 0) throw conflict('order.refundFirst');
       await tx.update(orderItems).set({ status: 'VOIDED', voidReason: `Order cancelled: ${reason}` })
         .where(and(eq(orderItems.orderId, id), sql`${orderItems.status} <> 'VOIDED'`));
       await tx.update(orders).set({ status: 'CANCELLED', cancelReason: reason, closedAt: new Date() }).where(eq(orders.id, id));
@@ -242,17 +261,17 @@ export default async function orderRoutes(app: FastifyInstance) {
         const [existing] = await tx.select().from(payments)
           .where(and(eq(payments.outletId, outletId), eq(payments.idempotencyKey, input.idempotencyKey)));
         if (existing) {
-          if (existing.orderId !== id) throw conflict('Idempotency key already used for a different order');
+          if (existing.orderId !== id) throw conflict('payment.idempotencyReused');
           return { replay: true, lowStock: [] as { id: string; name: string; quantityOnHand: number }[], closed: false };
         }
       }
       assertOpen(order);
       const pending = await tx.select({ id: orderItems.id }).from(orderItems)
         .where(and(eq(orderItems.orderId, id), eq(orderItems.status, 'PENDING'))).limit(1);
-      if (pending.length) throw conflict('Send or remove unsent items before taking payment');
+      if (pending.length) throw conflict('payment.unsentItems');
       const balance = order.totalCents - order.paidCents;
-      if (balance <= 0) throw conflict('Nothing left to pay on this order');
-      if (input.amountCents > balance) throw badRequest(`Amount exceeds balance due (${balance})`);
+      if (balance <= 0) throw conflict('payment.nothingDue');
+      if (input.amountCents > balance) throw badRequest('payment.exceedsBalance', { balance: (balance / 100).toFixed(2) });
 
       await tx.insert(payments).values({
         orderId: id, outletId, method: input.method, amountCents: input.amountCents, tipCents: input.tipCents,
@@ -277,7 +296,8 @@ export default async function orderRoutes(app: FastifyInstance) {
           .where(and(eq(orderItems.orderId, id), sql`${orderItems.status} in ('QUEUED','PREPARING','READY')`));
         await releaseTable(tx, order);
         lowStock = await deductInventory(tx, outletId, id, req.user.sub);
-        await audit(tx, req, { action: 'order.completed', entityType: 'order', entityId: id, outletId, metadata: { totalCents: order.totalCents } });
+        const invoiceNumber = await assignInvoiceNumber(tx, outletId, id);
+        await audit(tx, req, { action: 'order.completed', entityType: 'order', entityId: id, outletId, metadata: { totalCents: order.totalCents, invoiceNumber } });
       }
       return { replay: false, lowStock, closed };
     });
@@ -297,8 +317,8 @@ export default async function orderRoutes(app: FastifyInstance) {
     await app.db.transaction(async (tx) => {
       const order = await lockOrder(tx, outletId, id);
       const [p] = await tx.select().from(payments).where(and(eq(payments.id, paymentId), eq(payments.orderId, id)));
-      if (!p) throw notFound('Payment');
-      if (p.status === 'REFUNDED') throw conflict('Payment already refunded');
+      if (!p) throw notFound('entity.payment');
+      if (p.status === 'REFUNDED') throw conflict('payment.alreadyRefunded');
       await tx.update(payments).set({ status: 'REFUNDED', refundReason: reason, refundedAt: new Date() }).where(eq(payments.id, paymentId));
       await tx.update(orders).set({
         paidCents: order.paidCents - p.amountCents,
@@ -321,8 +341,8 @@ export default async function orderRoutes(app: FastifyInstance) {
     const { status } = parse(itemStatusSchema, req.body);
     const [item] = await app.db.select().from(orderItems)
       .where(and(eq(orderItems.id, itemId), eq(orderItems.orderId, id), eq(orderItems.outletId, outletId)));
-    if (!item) throw notFound('Order item');
-    if (!ITEM_TRANSITIONS[item.status].includes(status)) throw conflict(`Cannot move item from ${item.status} to ${status}`);
+    if (!item) throw notFound('entity.orderItem');
+    if (!ITEM_TRANSITIONS[item.status].includes(status)) throw conflict('order.badTransition', { from: item.status, to: status });
     const stamp = status === 'PREPARING' ? { startedAt: new Date() } : status === 'READY' ? { readyAt: new Date() } : status === 'SERVED' ? { servedAt: new Date() } : {};
     await app.db.update(orderItems).set({ status, ...stamp })
       .where(and(eq(orderItems.id, itemId), eq(orderItems.status, item.status)));

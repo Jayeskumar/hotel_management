@@ -1,7 +1,10 @@
 # API reference (v1)
 
 All endpoints are JSON under `/api/v1`. Authenticate with `Authorization: Bearer <accessToken>`.
-Errors: `{ "error": { "code", "message", "details?" } }` with status 400/401/403/404/409/422/423/429.
+Errors: `{ "error": { "code", "key", "params?", "message", "details?" } }` with status 400/401/403/404/409/422/423/429.
+`key` + `params` identify a message in `packages/shared/src/messages.ts` (English and Tamil);
+`message` is the English rendering. Example: `{ "code": "CONFLICT", "key": "table.hasOpenOrder", "params": { "table": "A3" } }`.
+Amounts are integer paise (`*Cents`), rates are basis points.
 
 ## Auth
 | Method | Path | Notes |
@@ -41,8 +44,9 @@ Errors: `{ "error": { "code", "message", "details?" } }` with status 400/401/403
 | POST | `/orders/:id/fire` | `orders:update` |
 | POST | `/orders/:id/items/:itemId/serve` | `orders:update` |
 | POST | `/orders/:id/discount` | `orders:discount` (>20% needs manager) |
+| POST | `/orders/:id/service-charge` | `orders:discount` — `{ enabled }`; remove/restore the optional service charge |
 | POST | `/orders/:id/cancel` | `orders:cancel` |
-| POST | `/orders/:id/payments` | `payments:create` — `{ method, amountCents, tipCents?, reference?, idempotencyKey? }` |
+| POST | `/orders/:id/payments` | `payments:create` — `{ method: CASH\|UPI\|CARD\|WALLET\|OTHER, amountCents, tipCents?, reference?, idempotencyKey? }`; assigns `invoiceNumber` when fully paid |
 | POST | `/orders/:id/payments/:paymentId/refund` | `payments:refund` |
 | GET | `/kitchen?station=` | `kitchen:view` |
 | POST | `/kitchen/items/:itemId/status` | `kitchen:update` |
@@ -51,7 +55,7 @@ Errors: `{ "error": { "code", "message", "details?" } }` with status 400/401/403
 | PATCH | `/reservations/:id/status` | `reservations:manage` |
 | GET/POST/PUT/DELETE | `/inventory[/:id]` | `inventory:view` / `inventory:manage` |
 | GET/POST | `/inventory/:id/movements` | `inventory:view` / `inventory:manage` |
-| GET | `/reports/sales?from&to` | `reports:view` |
+| GET | `/reports/sales?from&to` | `reports:view` — includes `gst[]` (taxable value, CGST, SGST by rate) |
 | GET | `/reports/orders.csv?from&to` | `reports:view` |
 | GET | `/audit?page&entityId` | `audit:view` |
 

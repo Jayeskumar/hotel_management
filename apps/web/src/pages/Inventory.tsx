@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import { STOCK_REASONS, UNITS, type StockReason } from '@tablewise/shared';
 import { api, errorMessage } from '../lib/api';
 import { useAuth, useOutlet } from '../lib/auth';
-import { dateTime, fromCents, money, titleCase, toCents } from '../lib/format';
+import { dateTime, fromCents, money, toCents } from '../lib/format';
+import { useI18n } from '../i18n';
 import type { InventoryItem } from '../lib/types';
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, PageLoader, Select, Stat, Table, Td, Th } from '../components/ui';
 import { Page } from '../components/Layout';
@@ -15,6 +16,7 @@ const qty = (n: number) => Number(n.toFixed(3)).toString();
 export default function Inventory() {
   const { outlet, base } = useOutlet();
   const { can } = useAuth();
+  const { t } = useI18n();
   const manage = can('inventory:manage');
   const [edit, setEdit] = useState<InventoryItem | 'new' | null>(null);
   const [move, setMove] = useState<InventoryItem | null>(null);
@@ -29,30 +31,30 @@ export default function Inventory() {
 
   return (
     <Page>
-      <PageHeader title="Inventory" description="Track stock levels, purchases and wastage. Sales deduct stock automatically via recipes."
-        actions={manage && <Button onClick={() => setEdit('new')}><Plus className="h-4 w-4" />Add item</Button>} />
+      <PageHeader title={t('inv.title')} description={t('inv.subtitle')}
+        actions={manage && <Button onClick={() => setEdit('new')}><Plus className="h-4 w-4" />{t('inv.add')}</Button>} />
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Stat label="Items tracked" value={data.length} icon={<Boxes className="h-5 w-5" />} />
-        <Stat label="Low stock" value={low.length} tone={low.length ? 'red' : 'brand'} icon={<AlertTriangle className="h-5 w-5" />} />
-        <Stat label="Stock value" value={money(Math.round(value), outlet.currency)} tone="violet" />
+        <Stat label={t('inv.tracked')} value={data.length} icon={<Boxes className="h-5 w-5" />} />
+        <Stat label={t('inv.low')} value={low.length} tone={low.length ? 'red' : 'brand'} icon={<AlertTriangle className="h-5 w-5" />} />
+        <Stat label={t('inv.value')} value={money(Math.round(value))} tone="violet" />
       </div>
-      <Card actions={<label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} />Show low stock only</label>} title="Stock">
-        {rows.length === 0 ? <EmptyState icon={<Boxes className="h-10 w-10" />} title={lowOnly ? 'Nothing is running low' : 'No inventory items yet'} /> : (
+      <Card actions={<label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} />{t('inv.lowOnly')}</label>} title={t('inv.stock')}>
+        {rows.length === 0 ? <EmptyState icon={<Boxes className="h-10 w-10" />} title={lowOnly ? t('inv.nothingLow') : t('inv.none')} /> : (
           <Table>
-            <thead className="bg-slate-50"><tr><Th>Item</Th><Th className="text-right">On hand</Th><Th className="text-right">Reorder at</Th><Th className="text-right">Unit cost</Th><Th>Status</Th><Th /></tr></thead>
+            <thead className="bg-slate-50"><tr><Th>{t('inv.col.item')}</Th><Th className="text-right">{t('inv.col.onHand')}</Th><Th className="text-right">{t('inv.col.reorder')}</Th><Th className="text-right">{t('inv.col.cost')}</Th><Th>{t('inv.col.status')}</Th><Th /></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((i) => (
                 <tr key={i.id}>
                   <Td className="font-medium text-slate-900">{i.name}</Td>
                   <Td className="tabular text-right">{qty(i.quantityOnHand)} {i.unit}</Td>
                   <Td className="tabular text-right text-slate-500">{qty(i.reorderLevel)} {i.unit}</Td>
-                  <Td className="tabular text-right">{money(i.costPerUnitCents, outlet.currency)}</Td>
-                  <Td>{i.isLow ? <Badge tone="red">Reorder</Badge> : <Badge tone="green">OK</Badge>}</Td>
+                  <Td className="tabular text-right">{money(i.costPerUnitCents)}</Td>
+                  <Td>{i.isLow ? <Badge tone="red">{t('inv.reorder')}</Badge> : <Badge tone="green">{t('inv.ok')}</Badge>}</Td>
                   <Td className="text-right">
                     <div className="flex justify-end gap-1">
-                      {manage && <Button size="sm" variant="secondary" onClick={() => setMove(i)}><PackagePlus className="h-3.5 w-3.5" />Adjust</Button>}
-                      <Button size="sm" variant="ghost" onClick={() => setHistory(i)} aria-label="History"><History className="h-4 w-4" /></Button>
-                      {manage && <Button size="sm" variant="ghost" onClick={() => setEdit(i)} aria-label="Edit"><Pencil className="h-4 w-4" /></Button>}
+                      {manage && <Button size="sm" variant="secondary" onClick={() => setMove(i)}><PackagePlus className="h-3.5 w-3.5" />{t('inv.adjust')}</Button>}
+                      <Button size="sm" variant="ghost" onClick={() => setHistory(i)} aria-label={t('inv.history')}><History className="h-4 w-4" /></Button>
+                      {manage && <Button size="sm" variant="ghost" onClick={() => setEdit(i)} aria-label={t('common.edit')}><Pencil className="h-4 w-4" /></Button>}
                     </div>
                   </Td>
                 </tr>
@@ -69,7 +71,8 @@ export default function Inventory() {
 }
 
 function ItemForm({ item, onClose }: { item: InventoryItem | null; onClose: () => void }) {
-  const { outlet, base } = useOutlet();
+  const { base } = useOutlet();
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [f, setF] = useState({ name: item?.name ?? '', unit: item?.unit ?? 'kg', reorderLevel: String(item?.reorderLevel ?? 0), cost: item ? fromCents(item.costPerUnitCents) : '' });
   const save = useMutation({
@@ -80,13 +83,13 @@ function ItemForm({ item, onClose }: { item: InventoryItem | null; onClose: () =
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['inventory'] }); onClose(); }, onError: (e) => toast.error(errorMessage(e)),
   });
   return (
-    <Modal open onClose={onClose} title={item ? `Edit ${item.name}` : 'New inventory item'} size="sm"
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button form="inv-form" type="submit" loading={save.isPending}>Save</Button></>}>
+    <Modal open onClose={onClose} title={item ? t('menu.editItem', { item: item.name }) : t('inv.newItem')} size="sm"
+      footer={<><Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button><Button form="inv-form" type="submit" loading={save.isPending}>{t('common.save')}</Button></>}>
       <form id="inv-form" className="grid grid-cols-2 gap-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <Field label="Name" className="col-span-2"><Input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-        <Field label="Unit"><Select value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })}>{UNITS.map((u) => <option key={u}>{u}</option>)}</Select></Field>
-        <Field label={`Cost / unit (${outlet.currency})`}><Input inputMode="decimal" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
-        <Field label="Reorder level" className="col-span-2" hint="You'll be alerted when stock falls to this level."><Input inputMode="decimal" value={f.reorderLevel} onChange={(e) => setF({ ...f, reorderLevel: e.target.value })} /></Field>
+        <Field label={t('common.name')} className="col-span-2"><Input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label={t('inv.unit')}><Select value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })}>{UNITS.map((u) => <option key={u}>{u}</option>)}</Select></Field>
+        <Field label={t('inv.costPerUnit')}><Input inputMode="decimal" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
+        <Field label={t('inv.reorderLevel')} className="col-span-2" hint={t('inv.reorderHint')}><Input inputMode="decimal" value={f.reorderLevel} onChange={(e) => setF({ ...f, reorderLevel: e.target.value })} /></Field>
       </form>
     </Modal>
   );
@@ -94,24 +97,25 @@ function ItemForm({ item, onClose }: { item: InventoryItem | null; onClose: () =
 
 function MovementForm({ item, onClose }: { item: InventoryItem; onClose: () => void }) {
   const { base } = useOutlet();
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [reason, setReason] = useState<StockReason>('PURCHASE');
   const [delta, setDelta] = useState('');
   const [note, setNote] = useState('');
   const save = useMutation({
     mutationFn: () => api.post(`${base}/inventory/${item.id}/movements`, { reason, delta: Number(delta), note: note || null }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['inventory'] }); toast.success('Stock updated'); onClose(); }, onError: (e) => toast.error(errorMessage(e)),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['inventory'] }); toast.success(t('inv.updated')); onClose(); }, onError: (e) => toast.error(errorMessage(e)),
   });
   return (
-    <Modal open onClose={onClose} title={`Adjust ${item.name}`} size="sm"
-      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button form="mv-form" type="submit" loading={save.isPending} disabled={!Number(delta)}>Record</Button></>}>
+    <Modal open onClose={onClose} title={t('inv.adjustTitle', { item: item.name })} size="sm"
+      footer={<><Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button><Button form="mv-form" type="submit" loading={save.isPending} disabled={!Number(delta)}>{t('inv.record')}</Button></>}>
       <form id="mv-form" className="space-y-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
-        <p className="text-sm text-slate-500">Currently {qty(item.quantityOnHand)} {item.unit} on hand.</p>
-        <Field label="Type"><Select value={reason} onChange={(e) => setReason(e.target.value as StockReason)}>{STOCK_REASONS.map((r) => <option key={r} value={r}>{titleCase(r)}</option>)}</Select></Field>
-        <Field label={`Quantity (${item.unit})`} hint={reason === 'ADJUSTMENT' ? 'Use a negative number to reduce stock.' : reason === 'PURCHASE' ? 'Added to stock.' : 'Removed from stock.'}>
+        <p className="text-sm text-slate-500">{t('inv.currently', { qty: qty(item.quantityOnHand), unit: item.unit })}</p>
+        <Field label={t('inv.type')}><Select value={reason} onChange={(e) => setReason(e.target.value as StockReason)}>{STOCK_REASONS.map((r) => <option key={r} value={r}>{t(`stock.${r}`)}</option>)}</Select></Field>
+        <Field label={t('inv.quantity', { unit: item.unit })} hint={reason === 'ADJUSTMENT' ? t('inv.hintAdjust') : reason === 'PURCHASE' ? t('inv.hintPurchase') : t('inv.hintRemove')}>
           <Input inputMode="decimal" required value={delta} onChange={(e) => setDelta(e.target.value)} autoFocus />
         </Field>
-        <Field label="Note"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Supplier invoice #, reason…" /></Field>
+        <Field label={t('inv.col.note')}><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('inv.notePh')} /></Field>
       </form>
     </Modal>
   );
@@ -119,20 +123,21 @@ function MovementForm({ item, onClose }: { item: InventoryItem; onClose: () => v
 
 function HistoryModal({ item, onClose }: { item: InventoryItem; onClose: () => void }) {
   const { outlet, base } = useOutlet();
+  const { t } = useI18n();
   const { data, isLoading } = useQuery({
     queryKey: ['inventory-history', item.id],
     queryFn: () => api.get<{ id: string; delta: number; reason: StockReason; note: string | null; userName: string | null; createdAt: string }[]>(`${base}/inventory/${item.id}/movements`),
   });
   return (
-    <Modal open onClose={onClose} title={`${item.name} — stock history`} size="lg">
-      {isLoading ? <PageLoader /> : !data?.length ? <EmptyState title="No movements yet" /> : (
+    <Modal open onClose={onClose} title={t('inv.historyTitle', { item: item.name })} size="lg">
+      {isLoading ? <PageLoader /> : !data?.length ? <EmptyState title={t('inv.noMovements')} /> : (
         <Table>
-          <thead><tr><Th>When</Th><Th>Type</Th><Th className="text-right">Change</Th><Th>By</Th><Th>Note</Th></tr></thead>
+          <thead><tr><Th>{t('inv.col.when')}</Th><Th>{t('inv.type')}</Th><Th className="text-right">{t('inv.col.change')}</Th><Th>{t('inv.col.by')}</Th><Th>{t('inv.col.note')}</Th></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {data.map((m) => (
               <tr key={m.id}>
                 <Td>{dateTime(m.createdAt, outlet.timezone)}</Td>
-                <Td>{titleCase(m.reason)}</Td>
+                <Td>{t(`stock.${m.reason}`)}</Td>
                 <Td className={`tabular text-right font-medium ${m.delta < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{m.delta > 0 ? '+' : ''}{qty(m.delta)} {item.unit}</Td>
                 <Td>{m.userName ?? '—'}</Td>
                 <Td className="max-w-48 truncate">{m.note ?? '—'}</Td>

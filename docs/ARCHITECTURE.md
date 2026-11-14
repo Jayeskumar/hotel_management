@@ -31,13 +31,37 @@ AuditLog (organization, outlet, user, action, entity, metadata)
   per-route rate limits on login/register/refresh.
 * Password change or staff deactivation revokes all refresh tokens.
 
-## Money & tax
+## Money & GST
 
-* All amounts are integer minor units (`*_cents`) and rates are basis points — no floats in storage.
-* `computeBill()` in the shared package is the single source of truth: discount is applied
-  pre-tax and allocated proportionally across lines; service charge is applied to the discounted
-  subtotal and taxed at the weighted line rate. Order lines snapshot name, price, tax rate and
-  modifiers at the time of ordering so menu edits never change historical bills.
+* All amounts are integer paise (columns are named `*_cents` for currency neutrality) and rates are
+  basis points (5% = 500) — no floats in storage.
+* `computeBillDetail()` in the shared package is the single source of truth, used by the API, the
+  POS screen and the printed invoice: discount is applied pre-tax and allocated proportionally across
+  lines; any service charge is applied to the discounted subtotal and attributed to each GST rate in
+  proportion. Tax is grouped by rate with largest-remainder rounding so the per-rate buckets sum
+  exactly to the bill's GST. `splitGst()` halves it into CGST and SGST (SGST takes the odd paisa).
+* Round-off to the nearest rupee is an outlet setting snapshotted on each order (`round_off_cents`).
+* Order lines snapshot English name, Tamil name, price, GST rate and add-ons at the time of ordering
+  so menu edits never change historical bills.
+* **Invoice numbers**: allocated only when an order is fully paid, inside the payment transaction,
+  from a per-outlet counter that resets when the Indian financial year (April–March, computed in the
+  outlet's timezone) changes. Format `PREFIX/YYYY/NNNNNN`, at most 16 characters as GST rules
+  require, unique per outlet.
+
+## Internationalisation (Tamil / English)
+
+* **UI strings**: `apps/web/src/i18n/en.ts` and `ta.ts`. `ta` is typed as `Record<keyof typeof en, string>`,
+  so a missing Tamil translation fails the TypeScript build.
+* **Server errors**: the API never returns UI text alone. Every error carries a message `key` and
+  `params` (plus an English `message` for logs/integrators); the catalogue in
+  `packages/shared/src/messages.ts` holds both languages and the client renders the active one.
+  A unit test asserts every key has a Tamil translation.
+* **Data**: categories, dishes and add-ons have an optional `name_ta`; the UI shows the active
+  language first and the other underneath. Receipts print both.
+* Language is stored per device (localStorage), not per user, so a shared billing counter and the
+  kitchen screen can each use their own language. Fonts (Inter + Noto Sans Tamil) are self-hosted
+  so terminals work without Google Fonts access.
+* Numbers and dates use `en-IN` / `ta-IN` locales (Indian digit grouping).
 
 ## Consistency & concurrency
 

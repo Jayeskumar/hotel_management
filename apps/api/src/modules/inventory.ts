@@ -22,7 +22,7 @@ export default async function inventoryRoutes(app: FastifyInstance) {
     const input = parse(inventoryItemSchema, req.body);
     const dup = await app.db.select({ id: inventoryItems.id }).from(inventoryItems)
       .where(and(eq(inventoryItems.outletId, outletId), eq(inventoryItems.name, input.name)));
-    if (dup.length) throw conflict(`${input.name} already exists`);
+    if (dup.length) throw conflict('inventory.exists', { name: input.name });
     const [row] = await app.db.insert(inventoryItems).values({ ...input, outletId }).returning();
     reply.code(201);
     return row;
@@ -34,7 +34,7 @@ export default async function inventoryRoutes(app: FastifyInstance) {
     const input = parse(inventoryItemSchema, req.body);
     const [row] = await app.db.update(inventoryItems).set(input)
       .where(and(eq(inventoryItems.id, id), eq(inventoryItems.outletId, outletId))).returning();
-    if (!row) throw notFound('Inventory item');
+    if (!row) throw notFound('entity.inventoryItem');
     return row;
   });
 
@@ -43,7 +43,7 @@ export default async function inventoryRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const d = await app.db.delete(inventoryItems)
       .where(and(eq(inventoryItems.id, id), eq(inventoryItems.outletId, outletId))).returning();
-    if (!d.length) throw notFound('Inventory item');
+    if (!d.length) throw notFound('entity.inventoryItem');
     await audit(app.db, req, { action: 'inventory.deleted', entityType: 'inventory_item', entityId: id, outletId, metadata: { name: d[0]!.name } });
     return { ok: true };
   });
@@ -59,7 +59,7 @@ export default async function inventoryRoutes(app: FastifyInstance) {
       const [row] = await tx.update(inventoryItems)
         .set({ quantityOnHand: sql`${inventoryItems.quantityOnHand} + ${delta}` })
         .where(and(eq(inventoryItems.id, id), eq(inventoryItems.outletId, outletId))).returning();
-      if (!row) throw notFound('Inventory item');
+      if (!row) throw notFound('entity.inventoryItem');
       await tx.insert(stockMovements).values({
         inventoryItemId: id, outletId, delta, reason: input.reason, note: input.note ?? null, createdById: req.user.sub,
       });

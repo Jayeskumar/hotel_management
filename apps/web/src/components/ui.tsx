@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import { Loader2, X } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
@@ -136,6 +137,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+  const { t } = useI18n();
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4" onMouseDown={onClose}>
@@ -147,7 +149,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: {
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label="Close">
+          <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" aria-label={t('common.close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -199,15 +201,16 @@ export function Td({ children, className }: { children?: ReactNode; className?: 
 }
 
 /** Simple confirm dialog with optional reason input. */
-export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', tone = 'danger', requireReason, loading, onConfirm, onClose }: {
+export function ConfirmDialog({ open, title, message, confirmLabel, tone = 'danger', requireReason, loading, onConfirm, onClose }: {
   open: boolean; title: string; message?: ReactNode; confirmLabel?: string; tone?: 'danger' | 'primary';
   requireReason?: boolean; loading?: boolean; onConfirm: (reason: string) => void; onClose: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Modal open={open} onClose={onClose} title={title} size="sm"
       footer={<>
-        <Button variant="secondary" onClick={onClose}>Back</Button>
-        <Button variant={tone} loading={loading} form="confirm-form" type="submit">{confirmLabel}</Button>
+        <Button variant="secondary" onClick={onClose}>{t('common.back')}</Button>
+        <Button variant={tone} loading={loading} form="confirm-form" type="submit">{confirmLabel ?? t('common.confirm')}</Button>
       </>}>
       <form id="confirm-form" onSubmit={(e) => {
         e.preventDefault();
@@ -215,7 +218,7 @@ export function ConfirmDialog({ open, title, message, confirmLabel = 'Confirm', 
         onConfirm(reason);
       }}>
         {message && <div className="mb-3 text-sm text-slate-600">{message}</div>}
-        {requireReason && <Field label="Reason"><Input name="reason" required minLength={3} autoFocus placeholder="Required for the audit log" /></Field>}
+        {requireReason && <Field label={t('common.reason')}><Input name="reason" required minLength={3} autoFocus placeholder={t('common.reasonPlaceholder')} /></Field>}
       </form>
     </Modal>
   );

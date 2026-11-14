@@ -38,7 +38,7 @@ export default async function menuRoutes(app: FastifyInstance) {
     const input = parse(categorySchema, req.body);
     const [c] = await app.db.update(menuCategories).set(input)
       .where(and(eq(menuCategories.id, id), eq(menuCategories.outletId, outletId))).returning();
-    if (!c) throw notFound('Category');
+    if (!c) throw notFound('entity.category');
     app.realtime.emit(outletId, SOCKET_EVENTS.MENU_UPDATED, {});
     return c;
   });
@@ -48,7 +48,7 @@ export default async function menuRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const items = await app.db.select({ id: menuItems.id }).from(menuItems)
       .where(and(eq(menuItems.categoryId, id), eq(menuItems.isArchived, false))).limit(1);
-    if (items.length) throw conflict('Move or archive the items in this category first');
+    if (items.length) throw conflict('menu.categoryHasItems');
     const archived = await app.db.select({ id: menuItems.id }).from(menuItems).where(eq(menuItems.categoryId, id)).limit(1);
     if (archived.length) {
       // Keep archived items' history intact by deactivating instead of deleting.
@@ -57,7 +57,7 @@ export default async function menuRoutes(app: FastifyInstance) {
     } else {
       const d = await app.db.delete(menuCategories)
         .where(and(eq(menuCategories.id, id), eq(menuCategories.outletId, outletId))).returning();
-      if (!d.length) throw notFound('Category');
+      if (!d.length) throw notFound('entity.category');
     }
     app.realtime.emit(outletId, SOCKET_EVENTS.MENU_UPDATED, {});
     return { ok: true };
@@ -67,7 +67,7 @@ export default async function menuRoutes(app: FastifyInstance) {
   async function assertCategory(outletId: string, categoryId: string) {
     const [c] = await app.db.select({ id: menuCategories.id }).from(menuCategories)
       .where(and(eq(menuCategories.id, categoryId), eq(menuCategories.outletId, outletId)));
-    if (!c) throw notFound('Category');
+    if (!c) throw notFound('entity.category');
   }
 
   app.post('/menu/items', manage, async (req, reply) => {
@@ -88,7 +88,7 @@ export default async function menuRoutes(app: FastifyInstance) {
     await assertCategory(outletId, input.categoryId);
     const [before] = await app.db.select({ priceCents: menuItems.priceCents }).from(menuItems)
       .where(and(eq(menuItems.id, id), eq(menuItems.outletId, outletId)));
-    if (!before) throw notFound('Menu item');
+    if (!before) throw notFound('entity.menuItem');
     const [item] = await app.db.update(menuItems).set(input).where(eq(menuItems.id, id)).returning();
     await audit(app.db, req, {
       action: 'menu_item.updated', entityType: 'menu_item', entityId: id, outletId,
@@ -103,11 +103,11 @@ export default async function menuRoutes(app: FastifyInstance) {
     const outletId = outletIdOf(req);
     const { id } = req.params as { id: string };
     const { isAvailable } = req.body as { isAvailable?: unknown };
-    if (typeof isAvailable !== 'boolean') throw badRequest('isAvailable must be a boolean');
+    if (typeof isAvailable !== 'boolean') throw badRequest('menu.availabilityBoolean');
     if (!can(req.user.role, 'menu:manage') && !can(req.user.role, 'kitchen:update')) throw forbidden();
     const [item] = await app.db.update(menuItems).set({ isAvailable })
       .where(and(eq(menuItems.id, id), eq(menuItems.outletId, outletId))).returning();
-    if (!item) throw notFound('Menu item');
+    if (!item) throw notFound('entity.menuItem');
     await audit(app.db, req, { action: isAvailable ? 'menu_item.restocked' : 'menu_item.86d', entityType: 'menu_item', entityId: id, outletId });
     app.realtime.emit(outletId, SOCKET_EVENTS.MENU_UPDATED, {});
     return item;
@@ -119,7 +119,7 @@ export default async function menuRoutes(app: FastifyInstance) {
     // Archive rather than delete: historical orders reference the item.
     const [item] = await app.db.update(menuItems).set({ isArchived: true, isAvailable: false })
       .where(and(eq(menuItems.id, id), eq(menuItems.outletId, outletId))).returning();
-    if (!item) throw notFound('Menu item');
+    if (!item) throw notFound('entity.menuItem');
     await audit(app.db, req, { action: 'menu_item.archived', entityType: 'menu_item', entityId: id, outletId });
     app.realtime.emit(outletId, SOCKET_EVENTS.MENU_UPDATED, {});
     return { ok: true };
@@ -144,11 +144,11 @@ export default async function menuRoutes(app: FastifyInstance) {
     const { lines } = parse(recipeSchema, req.body);
     const [item] = await app.db.select({ id: menuItems.id }).from(menuItems)
       .where(and(eq(menuItems.id, id), eq(menuItems.outletId, outletId)));
-    if (!item) throw notFound('Menu item');
+    if (!item) throw notFound('entity.menuItem');
     const inv = await app.db.select({ id: inventoryItems.id }).from(inventoryItems).where(eq(inventoryItems.outletId, outletId));
     const valid = new Set(inv.map((i) => i.id));
-    if (lines.some((l) => !valid.has(l.inventoryItemId))) throw badRequest('Unknown inventory item in recipe');
-    if (new Set(lines.map((l) => l.inventoryItemId)).size !== lines.length) throw badRequest('Duplicate ingredient in recipe');
+    if (lines.some((l) => !valid.has(l.inventoryItemId))) throw badRequest('recipe.unknownIngredient');
+    if (new Set(lines.map((l) => l.inventoryItemId)).size !== lines.length) throw badRequest('recipe.duplicate');
     await app.db.transaction(async (tx) => {
       await tx.delete(recipeLines).where(eq(recipeLines.menuItemId, id));
       if (lines.length) await tx.insert(recipeLines).values(lines.map((l) => ({ ...l, menuItemId: id })));

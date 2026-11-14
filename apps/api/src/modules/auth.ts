@@ -55,13 +55,13 @@ export default async function authRoutes(app: FastifyInstance) {
     if (!u) throw unauthorized();
     const [org] = await app.db.select().from(organizations).where(eq(organizations.id, u.organizationId));
     const outletRows = u.role === 'OWNER'
-      ? await app.db.select().from(outlets).where(eq(outlets.organizationId, u.organizationId)).orderBy(outlets.name)
+      ? await app.db.select().from(outlets).where(eq(outlets.organizationId, u.organizationId)).orderBy(outlets.createdAt)
       : await app.db
           .select({ outlet: outlets })
           .from(userOutlets)
           .innerJoin(outlets, eq(outlets.id, userOutlets.outletId))
           .where(eq(userOutlets.userId, u.id))
-          .orderBy(outlets.name)
+          .orderBy(outlets.createdAt)
           .then((r) => r.map((x) => x.outlet));
     return {
       user: { id: u.id, name: u.name, email: u.email, role: u.role },
@@ -69,17 +69,19 @@ export default async function authRoutes(app: FastifyInstance) {
       outlets: outletRows.filter((o) => o.isActive).map((o) => ({
         id: o.id, name: o.name, currency: o.currency, timezone: o.timezone,
         taxRateBps: o.taxRateBps, serviceChargeBps: o.serviceChargeBps,
+        legalName: o.legalName, address: o.address, phone: o.phone, gstin: o.gstin,
+        fssaiNumber: o.fssaiNumber, upiVpa: o.upiVpa, receiptFooter: o.receiptFooter, roundOff: o.roundOff,
       })),
       permissions: ROLE_PERMISSIONS[u.role],
     };
   }
 
   app.post('/register', { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } }, async (req, reply) => {
-    if (!app.config.ALLOW_SIGNUP) throw forbidden('Self-service signup is disabled');
+    if (!app.config.ALLOW_SIGNUP) throw forbidden('auth.signupDisabled');
     const input = parse(registerOrgSchema, req.body);
     const existing = await app.db.select({ id: users.id }).from(users)
       .where(sql`lower(${users.email}) = ${input.email}`);
-    if (existing.length) throw conflict('An account with this email already exists');
+    if (existing.length) throw conflict('auth.emailExists');
 
     const passwordHash = await hashPassword(input.password);
     const user = await app.db.transaction(async (tx) => {
@@ -104,10 +106,10 @@ export default async function authRoutes(app: FastifyInstance) {
     const [user] = await app.db.select().from(users).where(sql`lower(${users.email}) = ${input.email}`);
     if (!user) {
       await dummyVerify(input.password);
-      throw unauthorized('Invalid email or password');
+      throw unauthorized('auth.invalidCredentials');
     }
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      throw new AppError(423, 'ACCOUNT_LOCKED', 'Too many failed attempts. Try again later.');
+      throw new AppError(423, 'ACCOUNT_LOCKED', 'auth.locked');
     }
     const ok = await verifyPassword(input.password, user.passwordHash);
     if (!ok) {
@@ -116,9 +118,9 @@ export default async function authRoutes(app: FastifyInstance) {
         failedLoginCount: failed >= MAX_FAILED_LOGINS ? 0 : failed,
         lockedUntil: failed >= MAX_FAILED_LOGINS ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000) : null,
       }).where(eq(users.id, user.id));
-      throw unauthorized('Invalid email or password');
+      throw unauthorized('auth.invalidCredentials');
     }
-    if (!user.isActive) throw unauthorized('Account is disabled');
+    if (!user.isActive) throw unauthorized('auth.disabled');
     await app.db.update(users)
       .set({ failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() })
       .where(eq(users.id, user.id));
@@ -131,29 +133,29 @@ export default async function authRoutes(app: FastifyInstance) {
   /** Refresh-token rotation with reuse detection: replaying a rotated token revokes the whole family. */
   app.post('/refresh', { config: { rateLimit: { max: 60, timeWindow: '15 minutes' } } }, async (req, reply) => {
     const raw = req.cookies[REFRESH_COOKIE];
-    if (!raw) throw unauthorized('No refresh token');
+    if (!raw) throw unauthorized('auth.noRefresh');
     const [token] = await app.db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, sha256(raw)));
-    if (!token) throw unauthorized('Invalid refresh token');
+    if (!token) throw unauthorized('auth.refreshInvalid');
     if (token.revokedAt) {
       // Two tabs refreshing at the same moment is benign: don't treat a token
       // rotated within the last few seconds as theft.
       if (token.replacedById && Date.now() - token.revokedAt.getTime() < REUSE_GRACE_MS) {
-        throw unauthorized('Refresh token was just rotated; retry with the new token');
+        throw unauthorized('auth.refreshRotated');
       }
       await app.db.update(refreshTokens).set({ revokedAt: new Date() })
         .where(and(eq(refreshTokens.familyId, token.familyId), isNull(refreshTokens.revokedAt)));
       reply.clearCookie(REFRESH_COOKIE, { path: cookiePath });
-      throw unauthorized('Refresh token reuse detected; please sign in again');
+      throw unauthorized('auth.refreshReuse');
     }
-    if (token.expiresAt < new Date()) throw unauthorized('Refresh token expired');
+    if (token.expiresAt < new Date()) throw unauthorized('auth.refreshInvalid');
     const [user] = await app.db.select().from(users).where(eq(users.id, token.userId));
-    if (!user || !user.isActive) throw unauthorized('Account is disabled');
+    if (!user || !user.isActive) throw unauthorized('auth.disabled');
 
     // Atomically claim the token so two concurrent refreshes can't both succeed.
     const claimed = await app.db.update(refreshTokens).set({ revokedAt: new Date() })
       .where(and(eq(refreshTokens.id, token.id), isNull(refreshTokens.revokedAt)))
       .returning({ id: refreshTokens.id });
-    if (!claimed.length) throw unauthorized('Refresh token already used');
+    if (!claimed.length) throw unauthorized('auth.refreshRotated');
 
     const { accessToken, refreshTokenId } = await issueTokens(req, reply, user, token.familyId);
     await app.db.update(refreshTokens).set({ replacedById: refreshTokenId }).where(eq(refreshTokens.id, token.id));
@@ -176,7 +178,7 @@ export default async function authRoutes(app: FastifyInstance) {
     const input = parse(changePasswordSchema, req.body);
     const [user] = await app.db.select().from(users).where(eq(users.id, req.user.sub));
     if (!user || !(await verifyPassword(input.currentPassword, user.passwordHash))) {
-      throw new AppError(400, 'INVALID_PASSWORD', 'Current password is incorrect');
+      throw new AppError(400, 'INVALID_PASSWORD', 'auth.wrongPassword');
     }
     await app.db.transaction(async (tx) => {
       await tx.update(users).set({ passwordHash: await hashPassword(input.newPassword) }).where(eq(users.id, user.id));

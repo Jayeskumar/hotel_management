@@ -78,7 +78,7 @@ export default async function reportRoutes(app: FastifyInstance) {
     const zone = await tz(outletId);
     const completed = and(eq(orders.outletId, outletId), eq(orders.status, 'COMPLETED'), gte(orders.closedAt, from), lt(orders.closedAt, to));
 
-    const [[summary], byDay, byHour, byType, byMethod, topItems, byCategory, byStaff, [voids], [cancelled], [refunds]] = await Promise.all([
+    const [[summary], byDay, byHour, byType, byMethod, topItems, byCategory, byStaff, [voids], [cancelled], [refunds], gstRaw] = await Promise.all([
       app.db.select({
         orders: sql<number>`count(*)::int`,
         grossCents: sql<number>`coalesce(sum(${orders.subtotalCents}),0)::int`,
@@ -87,6 +87,7 @@ export default async function reportRoutes(app: FastifyInstance) {
         taxCents: sql<number>`coalesce(sum(${orders.taxCents}),0)::int`,
         totalCents: sql<number>`coalesce(sum(${orders.totalCents}),0)::int`,
         tipCents: sql<number>`coalesce(sum(${orders.tipCents}),0)::int`,
+        roundOffCents: sql<number>`coalesce(sum(${orders.roundOffCents}),0)::int`,
         guests: sql<number>`coalesce(sum(${orders.guestCount}),0)::int`,
         avgTurnMin: sql<number>`coalesce(avg(extract(epoch from (${orders.closedAt} - ${orders.openedAt})) / 60) filter (where ${orders.type} = 'DINE_IN'),0)::float`,
       }).from(orders).where(completed),
@@ -107,6 +108,7 @@ export default async function reportRoutes(app: FastifyInstance) {
         .groupBy(payments.method),
       app.db.select({
         name: orderItems.name,
+        nameTa: sql<string | null>`max(${orderItems.nameTa})`,
         quantity: sql<number>`sum(${orderItems.quantity})::int`,
         revenueCents: sql<number>`sum((${orderItems.unitPriceCents} + ${orderItems.modifiersCents}) * ${orderItems.quantity})::int`,
       }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
@@ -114,6 +116,7 @@ export default async function reportRoutes(app: FastifyInstance) {
         .groupBy(orderItems.name).orderBy(desc(sql`2`)).limit(10),
       app.db.select({
         category: sql<string>`coalesce(${menuCategories.name}, 'Uncategorised')`,
+        categoryTa: sql<string | null>`max(${menuCategories.nameTa})`,
         revenueCents: sql<number>`sum((${orderItems.unitPriceCents} + ${orderItems.modifiersCents}) * ${orderItems.quantity})::int`,
       }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
         .leftJoin(menuItems, eq(menuItems.id, orderItems.menuItemId))
@@ -138,7 +141,21 @@ export default async function reportRoutes(app: FastifyInstance) {
         .where(and(eq(orders.outletId, outletId), eq(orders.status, 'CANCELLED'), gte(orders.closedAt, from), lt(orders.closedAt, to))),
       app.db.select({ count: sql<number>`count(*)::int`, amountCents: sql<number>`coalesce(sum(${payments.amountCents}),0)::int` })
         .from(payments).where(and(eq(payments.outletId, outletId), eq(payments.status, 'REFUNDED'), gte(payments.refundedAt, from), lt(payments.refundedAt, to))),
+      // Taxable value per GST rate: each line's share of (subtotal - discount + service charge).
+      app.db.select({
+        rateBps: orderItems.taxRateBps,
+        taxable: sql<string>`coalesce(sum(((${orderItems.unitPriceCents} + ${orderItems.modifiersCents}) * ${orderItems.quantity})::numeric
+          * (${orders.subtotalCents} - ${orders.discountCents} + ${orders.serviceChargeCents}) / nullif(${orders.subtotalCents}, 0)), 0)`,
+      }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .where(and(completed, sql`${orderItems.status} <> 'VOIDED'`))
+        .groupBy(orderItems.taxRateBps).orderBy(orderItems.taxRateBps),
     ]);
+    const gst = gstRaw.map((g) => {
+      const taxableCents = Math.round(Number(g.taxable));
+      const taxCents = Math.round((taxableCents * g.rateBps) / 10_000);
+      const cgstCents = Math.floor(taxCents / 2);
+      return { rateBps: g.rateBps, taxableCents, taxCents, cgstCents, sgstCents: taxCents - cgstCents };
+    });
 
     return {
       range: { from, to, timezone: zone },
@@ -148,7 +165,7 @@ export default async function reportRoutes(app: FastifyInstance) {
         avgOrderCents: summary!.orders ? Math.round(summary!.totalCents / summary!.orders) : 0,
         avgTurnMin: Math.round(summary!.avgTurnMin),
       },
-      byDay, byHour, byType, byMethod, topItems, byCategory, byStaff,
+      byDay, byHour, byType, byMethod, topItems, byCategory, byStaff, gst,
       voids, cancelledOrders: cancelled!.count, refunds,
     };
   });
@@ -161,17 +178,22 @@ export default async function reportRoutes(app: FastifyInstance) {
       .leftJoin(users, eq(users.id, orders.waiterId))
       .where(and(eq(orders.outletId, outletId), gte(orders.openedAt, from), lt(orders.openedAt, to)))
       .orderBy(orders.openedAt).limit(50_000);
-    const header = ['order_number', 'status', 'type', 'table', 'waiter', 'guests', 'opened_at', 'closed_at',
-      'subtotal', 'discount', 'service_charge', 'tax', 'total', 'paid', 'tip', 'customer_name'];
+    const header = ['invoice_number', 'order_number', 'status', 'type', 'table', 'waiter', 'guests', 'opened_at', 'closed_at',
+      'subtotal', 'discount', 'service_charge', 'taxable_value', 'cgst', 'sgst', 'total_gst', 'round_off', 'total', 'paid', 'tip', 'customer_name'];
     const money = (c: number) => (c / 100).toFixed(2);
-    const lines = rows.map(({ o, table, waiter }) => [
-      o.orderNumber, o.status, o.type, table, waiter, o.guestCount, o.openedAt.toISOString(), o.closedAt?.toISOString(),
-      money(o.subtotalCents), money(o.discountCents), money(o.serviceChargeCents), money(o.taxCents),
-      money(o.totalCents), money(o.paidCents), money(o.tipCents), o.customerName,
-    ].map(csvCell).join(','));
+    const lines = rows.map(({ o, table, waiter }) => {
+      const cgst = Math.floor(o.taxCents / 2);
+      return [
+        o.invoiceNumber, o.orderNumber, o.status, o.type, table, waiter, o.guestCount, o.openedAt.toISOString(), o.closedAt?.toISOString(),
+        money(o.subtotalCents), money(o.discountCents), money(o.serviceChargeCents),
+        money(o.subtotalCents - o.discountCents + o.serviceChargeCents), money(cgst), money(o.taxCents - cgst), money(o.taxCents),
+        money(o.roundOffCents), money(o.totalCents), money(o.paidCents), money(o.tipCents), o.customerName,
+      ].map(csvCell).join(',');
+    });
     reply.header('content-type', 'text/csv; charset=utf-8');
     reply.header('content-disposition', `attachment; filename="orders-${from.toISOString().slice(0, 10)}-${to.toISOString().slice(0, 10)}.csv"`);
-    return [header.join(','), ...lines].join('\n');
+    // BOM so Excel opens UTF-8 (Tamil names) correctly.
+    return '\uFEFF' + [header.join(','), ...lines].join('\n');
   });
 
   app.get('/audit', { preHandler: [app.requirePermission('audit:view')] }, async (req) => {

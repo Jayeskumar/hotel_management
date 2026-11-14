@@ -8,6 +8,18 @@ const id = z.string().uuid();
 const cents = z.number().int().min(0).max(100_000_000);
 const bps = z.number().int().min(0).max(10_000);
 const name = z.string().trim().min(1).max(120);
+/** Optional Tamil display name. Empty strings become null. */
+const nameTa = z.string().trim().max(160).optional().nullable().transform((v) => (v ? v : null));
+const optionalText = (max: number) => z.string().trim().max(max).optional().nullable().transform((v) => (v ? v : null));
+
+/** GSTIN: 2-digit state code + PAN + entity no. + 'Z' + checksum. */
+export const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+/** FSSAI licence / registration number: 14 digits. */
+export const FSSAI_REGEX = /^[0-9]{14}$/;
+/** UPI virtual payment address, e.g. shopname@okaxis. */
+export const UPI_VPA_REGEX = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9]{1,63}$/;
+/** Indian mobile numbers, with or without +91. */
+export const PHONE_REGEX = /^(\+91[\s-]?)?[0-9][0-9\s-]{6,14}$/;
 
 // ---------- Auth ----------
 export const loginSchema = z.object({
@@ -29,8 +41,8 @@ export const registerOrgSchema = z.object({
   ownerName: name,
   email: z.string().trim().toLowerCase().email(),
   password: passwordSchema,
-  currency: z.string().length(3).toUpperCase().default('USD'),
-  timezone: z.string().min(1).max(64).default('UTC'),
+  currency: z.string().length(3).toUpperCase().default('INR'),
+  timezone: z.string().min(1).max(64).default('Asia/Kolkata'),
 });
 export type RegisterOrgInput = z.infer<typeof registerOrgSchema>;
 
@@ -49,6 +61,15 @@ export const outletSchema = z.object({
   taxRateBps: bps,
   serviceChargeBps: bps,
   receiptFooter: z.string().max(500).optional().nullable(),
+  legalName: optionalText(160),
+  gstin: z.string().trim().toUpperCase().regex(GSTIN_REGEX, 'Enter a valid 15-character GSTIN').optional().nullable()
+    .or(z.literal('').transform(() => null)),
+  fssaiNumber: z.string().trim().regex(FSSAI_REGEX, 'FSSAI number must be 14 digits').optional().nullable()
+    .or(z.literal('').transform(() => null)),
+  upiVpa: z.string().trim().regex(UPI_VPA_REGEX, 'Enter a valid UPI ID, e.g. shop@okaxis').optional().nullable()
+    .or(z.literal('').transform(() => null)),
+  invoicePrefix: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{1,6}$/, 'Use up to 6 letters/digits').default('INV'),
+  roundOff: z.boolean().default(true),
 });
 export type OutletInput = z.infer<typeof outletSchema>;
 
@@ -83,13 +104,15 @@ export const tableStatusSchema = z.object({ status: z.enum(TABLE_STATUSES) });
 // ---------- Menu ----------
 export const categorySchema = z.object({
   name,
+  nameTa,
   sortOrder: z.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
 });
-export const modifierSchema = z.object({ name: z.string().trim().min(1).max(60), priceCents: cents });
+export const modifierSchema = z.object({ name: z.string().trim().min(1).max(60), nameTa, priceCents: cents });
 export const menuItemSchema = z.object({
   categoryId: id,
   name,
+  nameTa,
   description: z.string().trim().max(500).optional().nullable(),
   sku: z.string().trim().max(40).optional().nullable(),
   priceCents: cents,
@@ -133,6 +156,7 @@ export const updateOrderSchema = z.object({
   notes: z.string().trim().max(500).optional().nullable(),
   tableId: id.optional().nullable(),
 });
+export const serviceChargeSchema = z.object({ enabled: z.boolean() });
 export const discountSchema = z.object({
   discount: z
     .discriminatedUnion('type', [

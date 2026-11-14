@@ -1,11 +1,11 @@
 CREATE TYPE "public"."item_status" AS ENUM('PENDING', 'QUEUED', 'PREPARING', 'READY', 'SERVED', 'VOIDED');--> statement-breakpoint
 CREATE TYPE "public"."order_status" AS ENUM('OPEN', 'COMPLETED', 'CANCELLED');--> statement-breakpoint
 CREATE TYPE "public"."order_type" AS ENUM('DINE_IN', 'TAKEAWAY', 'DELIVERY');--> statement-breakpoint
-CREATE TYPE "public"."payment_method" AS ENUM('CASH', 'CARD', 'UPI', 'WALLET', 'OTHER');--> statement-breakpoint
+CREATE TYPE "public"."payment_method" AS ENUM('CASH', 'UPI', 'CARD', 'WALLET', 'OTHER');--> statement-breakpoint
 CREATE TYPE "public"."payment_status" AS ENUM('COMPLETED', 'REFUNDED');--> statement-breakpoint
 CREATE TYPE "public"."reservation_status" AS ENUM('BOOKED', 'SEATED', 'COMPLETED', 'CANCELLED', 'NO_SHOW');--> statement-breakpoint
 CREATE TYPE "public"."role" AS ENUM('OWNER', 'MANAGER', 'CASHIER', 'WAITER', 'CHEF');--> statement-breakpoint
-CREATE TYPE "public"."station" AS ENUM('KITCHEN', 'BAR', 'DESSERT', 'GRILL');--> statement-breakpoint
+CREATE TYPE "public"."station" AS ENUM('KITCHEN', 'TIFFIN', 'TANDOOR', 'BEVERAGE', 'SWEETS');--> statement-breakpoint
 CREATE TYPE "public"."stock_reason" AS ENUM('PURCHASE', 'USAGE', 'WASTE', 'ADJUSTMENT');--> statement-breakpoint
 CREATE TYPE "public"."table_status" AS ENUM('AVAILABLE', 'OCCUPIED', 'RESERVED', 'CLEANING', 'OUT_OF_SERVICE');--> statement-breakpoint
 CREATE TABLE "areas" (
@@ -61,6 +61,7 @@ CREATE TABLE "menu_categories" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"outlet_id" uuid NOT NULL,
 	"name" varchar(120) NOT NULL,
+	"name_ta" varchar(160),
 	"sort_order" integer DEFAULT 0 NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
@@ -71,6 +72,7 @@ CREATE TABLE "menu_items" (
 	"outlet_id" uuid NOT NULL,
 	"category_id" uuid NOT NULL,
 	"name" varchar(120) NOT NULL,
+	"name_ta" varchar(160),
 	"description" varchar(500),
 	"sku" varchar(40),
 	"price_cents" integer NOT NULL,
@@ -91,6 +93,7 @@ CREATE TABLE "order_items" (
 	"outlet_id" uuid NOT NULL,
 	"menu_item_id" uuid,
 	"name" varchar(120) NOT NULL,
+	"name_ta" varchar(160),
 	"station" "station" NOT NULL,
 	"unit_price_cents" integer NOT NULL,
 	"modifiers" jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -124,6 +127,9 @@ CREATE TABLE "orders" (
 	"discount" jsonb,
 	"discount_reason" varchar(200),
 	"service_charge_bps" integer DEFAULT 0 NOT NULL,
+	"round_off" boolean DEFAULT true NOT NULL,
+	"round_off_cents" integer DEFAULT 0 NOT NULL,
+	"invoice_number" varchar(16),
 	"subtotal_cents" integer DEFAULT 0 NOT NULL,
 	"discount_cents" integer DEFAULT 0 NOT NULL,
 	"service_charge_cents" integer DEFAULT 0 NOT NULL,
@@ -155,11 +161,19 @@ CREATE TABLE "outlets" (
 	"name" varchar(120) NOT NULL,
 	"address" varchar(300),
 	"phone" varchar(40),
-	"currency" varchar(3) DEFAULT 'USD' NOT NULL,
-	"timezone" varchar(64) DEFAULT 'UTC' NOT NULL,
-	"tax_rate_bps" integer DEFAULT 0 NOT NULL,
+	"currency" varchar(3) DEFAULT 'INR' NOT NULL,
+	"timezone" varchar(64) DEFAULT 'Asia/Kolkata' NOT NULL,
+	"tax_rate_bps" integer DEFAULT 500 NOT NULL,
 	"service_charge_bps" integer DEFAULT 0 NOT NULL,
 	"receipt_footer" varchar(500),
+	"legal_name" varchar(160),
+	"gstin" varchar(15),
+	"fssai_number" varchar(14),
+	"upi_vpa" varchar(320),
+	"round_off" boolean DEFAULT true NOT NULL,
+	"invoice_prefix" varchar(6) DEFAULT 'INV' NOT NULL,
+	"invoice_seq" integer DEFAULT 0 NOT NULL,
+	"invoice_fy" varchar(4),
 	"order_seq" integer DEFAULT 0 NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -300,6 +314,7 @@ CREATE INDEX "menu_items_category_idx" ON "menu_items" USING btree ("category_id
 CREATE INDEX "order_items_order_idx" ON "order_items" USING btree ("order_id");--> statement-breakpoint
 CREATE INDEX "order_items_kitchen_idx" ON "order_items" USING btree ("outlet_id","status");--> statement-breakpoint
 CREATE UNIQUE INDEX "orders_outlet_number_uq" ON "orders" USING btree ("outlet_id","order_number");--> statement-breakpoint
+CREATE UNIQUE INDEX "orders_outlet_invoice_uq" ON "orders" USING btree ("outlet_id","invoice_number");--> statement-breakpoint
 CREATE INDEX "orders_outlet_status_idx" ON "orders" USING btree ("outlet_id","status");--> statement-breakpoint
 CREATE INDEX "orders_outlet_opened_idx" ON "orders" USING btree ("outlet_id","opened_at");--> statement-breakpoint
 CREATE INDEX "orders_table_idx" ON "orders" USING btree ("table_id");--> statement-breakpoint

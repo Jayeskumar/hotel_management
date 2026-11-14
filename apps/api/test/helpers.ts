@@ -74,16 +74,18 @@ export async function addStaff(app: FastifyInstance, owner: Client, outletId: st
 export async function setupOutlet(owner: Client, outletId: string) {
   const base = `/api/v1/outlets/${outletId}`;
   await owner.put(`/api/v1/outlets/${outletId}`, {
-    name: 'Main', currency: 'USD', timezone: 'UTC', taxRateBps: 1000, serviceChargeBps: 500,
+    name: 'Main', currency: 'INR', timezone: 'Asia/Kolkata', taxRateBps: 500, serviceChargeBps: 1000, roundOff: true,
+    gstin: '33AABCT1234F1Z5', upiVpa: 'test.shop@okaxis',
   });
   const area = (await owner.post(`${base}/areas`, { name: 'Hall' })).body;
   const t1 = (await owner.post(`${base}/tables`, { areaId: area.id, label: 'T1', seats: 4 })).body;
   const t2 = (await owner.post(`${base}/tables`, { areaId: area.id, label: 'T2', seats: 2 })).body;
   const cat = (await owner.post(`${base}/menu/categories`, { name: 'Mains' })).body;
+  // ₹100 dosa with a ₹20 ghee add-on, and ₹35 filter coffee.
   const burger = (await owner.post(`${base}/menu/items`, {
-    categoryId: cat.id, name: 'Burger', priceCents: 1000, station: 'GRILL',
-    modifiers: [{ name: 'Cheese', priceCents: 100 }],
+    categoryId: cat.id, name: 'Masala Dosa', nameTa: 'மசாலா தோசை', priceCents: 10000, station: 'TIFFIN',
+    modifiers: [{ name: 'Ghee', nameTa: 'நெய்', priceCents: 2000 }],
   })).body;
-  const soda = (await owner.post(`${base}/menu/items`, { categoryId: cat.id, name: 'Soda', priceCents: 300, station: 'BAR' })).body;
+  const soda = (await owner.post(`${base}/menu/items`, { categoryId: cat.id, name: 'Filter Coffee', nameTa: 'ஃபில்டர் காபி', priceCents: 3500, station: 'BEVERAGE' })).body;
   return { base, area, t1, t2, cat, burger, soda };
 }
