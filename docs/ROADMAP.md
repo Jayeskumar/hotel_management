@@ -31,6 +31,13 @@ What exists today is a production-shaped core. Before selling to paying customer
 - Multi-outlet consolidated reporting for owners; central menu pushed to outlets
 - Hotel PMS integration (room charge / post to folio)
 
+## On-premise edition
+- Test the installer on real Windows 10/11 machines (checklist in docs/ONPREM.md) and buy a code-signing certificate
+- In-app update notifications (check a release feed, download the new installer)
+- Optional encrypted off-site backup upload (S3 / Google Drive) as a paid add-on
+- Hybrid mode: on-prem server that syncs to the cloud for owner dashboards across branches
+- Hardware licence binding (machine fingerprint) if licence sharing becomes a problem
+
 ## Platform
 - Subscription billing & plan limits (outlets, staff seats)
 - Socket.IO Redis adapter + sticky sessions for horizontal scaling

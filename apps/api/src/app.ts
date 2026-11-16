@@ -4,6 +4,9 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import fs from 'node:fs';
+import path from 'node:path';
 import { sql } from 'drizzle-orm';
 import type { Config } from './config.js';
 import type { DB } from './db/client.js';
@@ -20,16 +23,19 @@ import kitchenRoutes from './modules/kitchen.js';
 import reservationRoutes from './modules/reservations.js';
 import inventoryRoutes from './modules/inventory.js';
 import reportRoutes from './modules/reports.js';
+import systemRoutes from './modules/system.js';
+import type { SystemHooks } from './lib/system.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     config: Config;
     db: DB;
     realtime: Realtime;
+    system: SystemHooks;
   }
 }
 
-export async function buildApp(opts: { config: Config; db: DB; logger?: boolean }): Promise<FastifyInstance> {
+export async function buildApp(opts: { config: Config; db: DB; logger?: boolean; hooks?: SystemHooks }): Promise<FastifyInstance> {
   const { config, db } = opts;
   const app = Fastify({
     logger: opts.logger === false ? false : {
@@ -45,6 +51,7 @@ export async function buildApp(opts: { config: Config; db: DB; logger?: boolean 
   app.decorate('config', config);
   app.decorate('db', db);
   app.decorate('realtime', new Realtime());
+  app.decorate('system', opts.hooks ?? {});
 
   app.addHook('onSend', async (req, reply) => {
     reply.header('x-request-id', req.id);
@@ -79,7 +86,30 @@ export async function buildApp(opts: { config: Config; db: DB; logger?: boolean 
     return send(500, 'INTERNAL', 'error.internal', undefined, { requestId: req.id });
   });
 
-  app.setNotFoundHandler((_req, reply) => {
+  // Single-port deployments (on-prem, simple cloud installs) serve the built web app too.
+  const webDir = config.WEB_DIR && fs.existsSync(path.join(config.WEB_DIR, 'index.html')) ? config.WEB_DIR : null;
+  if (webDir) {
+    await app.register(fastifyStatic, {
+      root: webDir,
+      wildcard: false,
+      index: false,
+      cacheControl: false,
+      setHeaders: (res, filePath) => {
+        res.setHeader('cache-control', filePath.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    });
+  }
+
+  app.setNotFoundHandler((req, reply) => {
+    const isApi = req.url.startsWith('/api/') || req.url.startsWith('/socket.io');
+    if (webDir && req.method === 'GET' && !isApi) {
+      // Client-side routes (/floor, /orders/123 ...) all load the SPA shell.
+      const file = req.url.split('?')[0]!.slice(1);
+      if (file && !file.includes('..') && fs.existsSync(path.join(webDir, file)) && fs.statSync(path.join(webDir, file)).isFile()) {
+        return reply.sendFile(file);
+      }
+      return reply.header('cache-control', 'no-cache').sendFile('index.html');
+    }
     reply.code(404).send({ error: { code: 'NOT_FOUND', key: 'error.notFound', params: { entity: 'entity.route' }, message: 'Page not found' } });
   });
 
@@ -95,6 +125,7 @@ export async function buildApp(opts: { config: Config; db: DB; logger?: boolean 
 
   await app.register(async (api) => {
     await api.register(authRoutes, { prefix: '/auth' });
+    await api.register(systemRoutes, { prefix: '/system' });
     await api.register(organizationRoutes);
     await api.register(async (outletScope) => {
       outletScope.addHook('preHandler', outletScope.authenticate);

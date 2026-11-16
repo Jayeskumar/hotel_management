@@ -25,4 +25,4 @@ USER app
 WORKDIR /app/apps/api
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD wget -qO- http://127.0.0.1:4000/health || exit 1
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/main.js"]

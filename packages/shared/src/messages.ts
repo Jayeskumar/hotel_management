@@ -76,6 +76,13 @@ const en = {
   'payment.exceedsBalance': 'Amount exceeds the balance due ({balance})',
   'payment.idempotencyReused': 'This payment reference was already used for another order',
   'payment.alreadyRefunded': 'Payment already refunded',
+  // licensing / setup
+  'license.expired': 'The licence or trial has expired. New orders are paused — please contact your vendor to renew.',
+  'license.invalid': 'This licence key is not valid',
+  'license.outletLimit': 'Your licence allows {max} branch(es). Upgrade to add more.',
+  'license.onpremOnly': 'Licence keys are only used on on-premise installations',
+  'system.notAvailable': 'This feature is not available on this installation',
+  'setup.alreadyDone': 'Setup has already been completed on this installation',
   // reservations
   'reservation.onlyBookedEditable': 'Only booked reservations can be edited',
   'reservation.badTransition': 'Cannot change reservation from {from} to {to}',
@@ -146,6 +153,12 @@ const ta: Record<MessageKey, string> = {
   'payment.exceedsBalance': 'தொகை நிலுவையை ({balance}) விட அதிகம்',
   'payment.idempotencyReused': 'இந்தக் கட்டணக் குறிப்பு வேறொரு ஆர்டருக்குப் பயன்படுத்தப்பட்டது',
   'payment.alreadyRefunded': 'இந்தக் கட்டணம் ஏற்கனவே திருப்பித் தரப்பட்டது',
+  'license.expired': 'உரிமம் அல்லது சோதனைக் காலம் முடிந்துவிட்டது. புதிய ஆர்டர்கள் நிறுத்தப்பட்டுள்ளன — புதுப்பிக்க உங்கள் விற்பனையாளரைத் தொடர்பு கொள்ளவும்.',
+  'license.invalid': 'இந்த உரிம விசை செல்லாது',
+  'license.outletLimit': 'உங்கள் உரிமம் {max} கிளை(கள்) மட்டுமே அனுமதிக்கிறது. மேலும் சேர்க்க மேம்படுத்தவும்.',
+  'license.onpremOnly': 'உரிம விசைகள் உள்ளக (on-premise) நிறுவல்களுக்கு மட்டுமே',
+  'system.notAvailable': 'இந்த வசதி இந்த நிறுவலில் இல்லை',
+  'setup.alreadyDone': 'இந்த நிறுவலில் அமைப்பு ஏற்கனவே முடிந்துவிட்டது',
   'reservation.onlyBookedEditable': 'முன்பதிவு நிலையில் உள்ளவற்றை மட்டுமே திருத்த முடியும்',
   'reservation.badTransition': 'முன்பதிவை {from} நிலையிலிருந்து {to} நிலைக்கு மாற்ற முடியாது',
 };

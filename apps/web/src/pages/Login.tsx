@@ -33,7 +33,7 @@ export function AuthShell({ title, subtitle, children }: { title: string; subtit
   );
 }
 
-export function LoginPage() {
+export function LoginPage({ signupAllowed = true }: { signupAllowed?: boolean }) {
   const { login } = useAuth();
   const { t } = useI18n();
   const [email, setEmail] = useState('');
@@ -54,9 +54,11 @@ export function LoginPage() {
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>}
         <Button type="submit" className="w-full" size="lg" loading={busy}>{t('auth.signIn')}</Button>
       </form>
-      <p className="mt-6 text-center text-sm text-slate-500">
-        {t('auth.newRestaurant')} <Link to="/register" className="font-medium text-brand-700 hover:underline">{t('auth.createAccount')}</Link>
-      </p>
+      {signupAllowed && (
+        <p className="mt-6 text-center text-sm text-slate-500">
+          {t('auth.newRestaurant')} <Link to="/register" className="font-medium text-brand-700 hover:underline">{t('auth.createAccount')}</Link>
+        </p>
+      )}
     </AuthShell>
   );
 }

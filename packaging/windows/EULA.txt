@@ -1,0 +1,16 @@
+TableWise End User Licence Agreement
+====================================
+
+PLACEHOLDER — replace this file with your own licence agreement before distributing the
+installer to customers. Have it reviewed by a lawyer.
+
+It should cover at least: licence scope (number of branches / devices), licence term and
+renewal, support and updates, data ownership (the restaurant owns its data, which is stored
+on its own computer), backups being the customer's responsibility on on-premise installs,
+warranty disclaimer, limitation of liability and governing law (e.g. courts of Chennai, India).
+
+Third-party components bundled with this installer and their licences:
+  - Node.js (MIT licence)                     https://nodejs.org
+  - PostgreSQL (PostgreSQL licence)           https://www.postgresql.org
+  - WinSW service wrapper (MIT licence)       https://github.com/winsw/winsw
+  - Open-source JavaScript libraries — see app\server.mjs.LEGAL.txt

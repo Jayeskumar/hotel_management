@@ -7,7 +7,8 @@ import {
   SOCKET_EVENTS, updateItemQtySchema, updateOrderSchema, voidItemSchema,
 } from '@tablewise/shared';
 import { diningTables, orderItems, orders, outlets, payments, users } from '../db/schema.js';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { AppError, badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { getLicenseStatus } from '../lib/license.js';
 import { parse } from '../lib/validate.js';
 import { outletIdOf, paged } from '../lib/http.js';
 import { audit } from '../lib/audit.js';
@@ -68,6 +69,8 @@ export default async function orderRoutes(app: FastifyInstance) {
 
   app.post('/orders', perm('orders:create'), async (req, reply) => {
     const outletId = outletIdOf(req);
+    // Existing orders can always be finished and paid; only new ones stop when the licence lapses.
+    if (!(await getLicenseStatus(app.db, app.config)).canOperate) throw new AppError(402, 'LICENSE_EXPIRED', 'license.expired');
     const input = parse(createOrderSchema, req.body);
     const order = await createOrder(app.db, outletId, req.user.sub, input);
     await audit(app.db, req, {

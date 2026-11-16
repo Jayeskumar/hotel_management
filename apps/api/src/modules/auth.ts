@@ -42,7 +42,7 @@ export default async function authRoutes(app: FastifyInstance) {
     }).returning({ id: refreshTokens.id });
     reply.setCookie(REFRESH_COOKIE, raw, {
       httpOnly: true,
-      secure: app.config.NODE_ENV === 'production',
+      secure: app.config.COOKIE_SECURE,
       sameSite: 'strict',
       path: cookiePath,
       expires: expiresAt,
@@ -77,7 +77,11 @@ export default async function authRoutes(app: FastifyInstance) {
   }
 
   app.post('/register', { config: { rateLimit: { max: 5, timeWindow: '1 hour' } } }, async (req, reply) => {
-    if (!app.config.ALLOW_SIGNUP) throw forbidden('auth.signupDisabled');
+    // First-run setup is always allowed on an empty installation; afterwards only if signup is enabled.
+    const [{ n } = { n: 0 }] = await app.db.select({ n: sql<number>`count(*)::int` }).from(organizations);
+    if (n > 0 && !app.config.ALLOW_SIGNUP) {
+      throw forbidden(app.config.DEPLOYMENT_MODE === 'onprem' ? 'setup.alreadyDone' : 'auth.signupDisabled');
+    }
     const input = parse(registerOrgSchema, req.body);
     const existing = await app.db.select({ id: users.id }).from(users)
       .where(sql`lower(${users.email}) = ${input.email}`);

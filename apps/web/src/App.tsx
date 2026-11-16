@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router';
 import type { Permission } from '@tablewise/shared';
 import { useAuth } from './lib/auth';
 import { useI18n } from './i18n';
+import { useSystemInfo } from './lib/system';
 import { Layout } from './components/Layout';
 import { EmptyState, PageLoader } from './components/ui';
 import { LoginPage } from './pages/Login';
@@ -33,14 +34,19 @@ function Guard({ perms, children }: { perms?: Permission[]; children: ReactNode 
 export function App() {
   const { session, loading, outlet } = useAuth();
   const { t } = useI18n();
-  if (loading) return <PageLoader />;
+  const system = useSystemInfo();
+  if (loading || (!session && system.isLoading)) return <PageLoader />;
 
   if (!session) {
+    // A brand-new on-prem install goes straight to the setup wizard.
+    if (system.data?.setupRequired) {
+      return <Suspense fallback={<PageLoader />}><Register setup /></Suspense>;
+    }
     return (
       <Suspense fallback={<PageLoader />}>
         <Routes>
-          <Route path="/register" element={<Register />} />
-          <Route path="*" element={<LoginPage />} />
+          {system.data?.signupAllowed !== false && <Route path="/register" element={<Register />} />}
+          <Route path="*" element={<LoginPage signupAllowed={system.data?.signupAllowed !== false} />} />
         </Routes>
       </Suspense>
     );

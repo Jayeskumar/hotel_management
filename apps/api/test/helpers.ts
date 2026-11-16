@@ -7,9 +7,10 @@ import { createDb } from '../src/db/client.js';
 process.env.NODE_ENV = 'test';
 const TEST_DB = process.env.TEST_DATABASE_URL ?? 'postgres://tablewise:tablewise@localhost:5432/tablewise_test';
 
-export async function makeApp() {
+export async function makeApp(extraEnv: Record<string, string> = {}) {
   const config = loadConfig({
     NODE_ENV: 'test', DATABASE_URL: TEST_DB, JWT_SECRET: 'test-secret-test-secret-test-secret-123', LOG_LEVEL: 'silent',
+    ...extraEnv,
   });
   const { db, pool } = createDb(TEST_DB, 5);
   const app = await buildApp({ config, db, logger: false });

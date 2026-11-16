@@ -8,6 +8,9 @@ import {
 import type { Permission } from '@tablewise/shared';
 import { useAuth } from '../lib/auth';
 import { useRealtime } from '../lib/realtime';
+import { useSystemInfo } from '../lib/system';
+import { Link } from 'react-router';
+import { AlertTriangle, KeyRound } from 'lucide-react';
 import { LanguageToggle, useI18n, type TKey } from '../i18n';
 
 interface NavItem { to: string; label: TKey; icon: typeof LayoutDashboard; perms?: Permission[] }
@@ -29,7 +32,9 @@ const NAV: NavItem[] = [
 export function Layout() {
   const { session, outlet, setOutletId, logout, can } = useAuth();
   const { t } = useI18n();
+  const system = useSystemInfo();
   const connected = useRealtime(outlet?.id);
+  const lic = system.data?.license;
   const [open, setOpen] = useState(false);
   const items = NAV.filter((n) => !n.perms || n.perms.some(can));
 
@@ -99,6 +104,18 @@ export function Layout() {
           <span className="ml-auto truncate text-sm text-slate-500">{outlet?.name}</span>
           <LanguageToggle />
         </header>
+        {lic && !lic.canOperate && (
+          <div role="alert" className="flex items-center gap-2 bg-red-600 px-4 py-2 text-sm font-medium text-white">
+            <AlertTriangle className="h-4 w-4 shrink-0" />{t('banner.expired')}
+            {can('outlet:manage') && <Link to="/settings?tab=system" className="ml-auto underline">{t('banner.trialCta')}</Link>}
+          </div>
+        )}
+        {lic?.state === 'trial' && can('outlet:manage') && (
+          <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 text-sm text-amber-900 ring-1 ring-amber-200">
+            <KeyRound className="h-4 w-4 shrink-0" />{t('banner.trial', { n: lic.daysLeft ?? 0 })}
+            <Link to="/settings?tab=system" className="ml-auto font-medium underline">{t('banner.trialCta')}</Link>
+          </div>
+        )}
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>

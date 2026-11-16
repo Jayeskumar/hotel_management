@@ -299,6 +299,13 @@ export const stockMovements = pgTable('stock_movements', {
   createdAt: createdAt(),
 }, (t) => [index('stock_movements_item_idx').on(t.inventoryItemId, t.createdAt)]);
 
+// ---------------------------------------------------------------- System (on-prem install state, licence)
+export const systemSettings = pgTable('system_settings', {
+  key: varchar('key', { length: 60 }).primaryKey(),
+  value: jsonb('value').notNull(),
+  updatedAt: updatedAt(),
+});
+
 // ---------------------------------------------------------------- Audit
 export const auditLogs = pgTable('audit_logs', {
   id: pk(),

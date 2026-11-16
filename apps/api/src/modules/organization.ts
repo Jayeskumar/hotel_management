@@ -6,6 +6,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { parse } from '../lib/validate.js';
 import { hashPassword } from '../lib/password.js';
 import { audit } from '../lib/audit.js';
+import { getLicenseStatus, outletCount } from '../lib/license.js';
 
 /** Organization-level administration: outlets and staff. */
 export default async function organizationRoutes(app: FastifyInstance) {
@@ -14,6 +15,10 @@ export default async function organizationRoutes(app: FastifyInstance) {
   // ------------------------------------------------------------ Outlets
   app.post('/outlets', { preHandler: [app.requirePermission('outlet:manage')] }, async (req, reply) => {
     const input = parse(outletSchema, req.body);
+    const license = await getLicenseStatus(app.db, app.config);
+    if (license.maxOutlets !== null && (await outletCount(app.db, req.user.org)) >= license.maxOutlets) {
+      throw forbidden('license.outletLimit', { max: license.maxOutlets });
+    }
     const outlet = await app.db.transaction(async (tx) => {
       const [o] = await tx.insert(outlets).values({ ...input, organizationId: req.user.org }).returning();
       await tx.insert(userOutlets).values({ userId: req.user.sub, outletId: o!.id });

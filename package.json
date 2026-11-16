@@ -2,8 +2,11 @@
   "name": "tablewise",
   "private": true,
   "version": "1.0.0",
-  "description": "TableWise — enterprise restaurant management platform",
-  "workspaces": ["packages/*", "apps/*"],
+  "description": "TableWise \u2014 enterprise restaurant management platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "npm run build -w @tablewise/shared && npm run build -w @tablewise/api && npm run build -w @tablewise/web",
     "dev:api": "npm run dev -w @tablewise/api",
@@ -11,7 +14,11 @@
     "typecheck": "npm run build -w @tablewise/shared && npm run typecheck -w @tablewise/api && npm run typecheck -w @tablewise/web",
     "test": "npm run build -w @tablewise/shared && npm run test -w @tablewise/shared && npm run test -w @tablewise/api",
     "db:migrate": "npm run db:migrate -w @tablewise/api",
-    "db:seed": "npm run db:seed -w @tablewise/api"
+    "db:seed": "npm run db:seed -w @tablewise/api",
+    "license:keygen": "node tools/license/keygen.mjs",
+    "license:issue": "node tools/license/issue.mjs"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

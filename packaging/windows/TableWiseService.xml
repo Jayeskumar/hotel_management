@@ -1,0 +1,24 @@
+<!-- WinSW 2.x service definition. %BASE% is this folder (…\TableWise\service). -->
+<service>
+  <id>TableWise</id>
+  <name>TableWise Restaurant Server</name>
+  <description>TableWise POS, kitchen display and billing server. Other devices on the network connect to this PC on port 8080.</description>
+  <executable>%BASE%\..\node\node.exe</executable>
+  <arguments>--enable-source-maps "%BASE%\..\app\server.mjs" run</arguments>
+  <workingdirectory>%BASE%\..\app</workingdirectory>
+  <env name="TABLEWISE_DATA" value="%ProgramData%\TableWise" />
+  <env name="NODE_ENV" value="production" />
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="restart" delay="60 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <!-- Ctrl+C lets the server finish requests and stop PostgreSQL cleanly. -->
+  <stoptimeout>45 sec</stoptimeout>
+  <logpath>%ProgramData%\TableWise\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

@@ -47,6 +47,21 @@ packages/shared Shared domain logic (billing, RBAC, schemas)
 docs/           Architecture, API reference, roadmap
 ```
 
+## Deployment options (one codebase)
+
+| Edition | How | Docs |
+|---|---|---|
+| **Cloud / SaaS** | Docker images (API + nginx web) + managed PostgreSQL | below |
+| **On-premise (Windows)** | `TableWise-Setup-x.y.z-x64.exe` — bundles Node, PostgreSQL 17 and the app, runs as a Windows service; tablets and kitchen screens connect over the restaurant LAN | [docs/ONPREM.md](docs/ONPREM.md) |
+| **On-premise (Linux)** | the same Docker setup with `DEPLOYMENT_MODE=onprem` | [docs/ONPREM.md](docs/ONPREM.md) |
+
+On-premise installs get a first-run setup wizard, offline licence keys with a 30-day trial,
+nightly backups, and support commands (backup / restore / reset-password).
+
+```bash
+node packaging/windows/build.mjs     # build the Windows installer (needs makensis)
+```
+
 ## Quick start (local development)
 
 Requires Node 20+ and PostgreSQL 14+.

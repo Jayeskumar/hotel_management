@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
@@ -11,7 +11,8 @@ import type { Area, DiningTable, Outlet } from '../lib/types';
 import { Button, Card, Checkbox, ConfirmDialog, EmptyState, Field, Input, Modal, PageHeader, PageLoader, Select, Tabs, Textarea } from '../components/ui';
 import { Page } from '../components/Layout';
 
-type Tab = 'outlet' | 'floor' | 'new-outlet' | 'account';
+type Tab = 'outlet' | 'floor' | 'new-outlet' | 'system' | 'account';
+const SystemSettings = lazy(() => import('./SystemSettings'));
 
 export default function SettingsPage() {
   const { can } = useAuth();
@@ -21,6 +22,7 @@ export default function SettingsPage() {
     can('outlet:manage') && { value: 'outlet' as Tab, label: t('set.outlet') },
     can('tables:manage') && { value: 'floor' as Tab, label: t('set.floor') },
     can('outlet:manage') && { value: 'new-outlet' as Tab, label: t('set.newOutlet') },
+    can('outlet:manage') && { value: 'system' as Tab, label: t('set.system') },
     { value: 'account' as Tab, label: t('set.account') },
   ].filter(Boolean) as { value: Tab; label: string }[];
   const tab = (tabs.find((t) => t.value === params.get('tab'))?.value ?? tabs[0]!.value);
@@ -32,6 +34,7 @@ export default function SettingsPage() {
       {tab === 'outlet' && <OutletSettings />}
       {tab === 'floor' && <FloorSettings />}
       {tab === 'new-outlet' && <OutletForm />}
+      {tab === 'system' && <Suspense fallback={<PageLoader />}><SystemSettings /></Suspense>}
       {tab === 'account' && <AccountSettings />}
     </Page>
   );
