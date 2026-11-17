@@ -111,6 +111,8 @@ export async function createOrder(db: DB, outletId: string, userId: string, inpu
       waiterId: userId,
       serviceChargeBps: input.type === 'DINE_IN' ? outlet.serviceChargeBps : 0,
       roundOff: outlet.roundOff,
+      // App clock, like firedAt/closedAt, so all order timestamps come from one source.
+      openedAt: new Date(),
     }).returning();
 
     const lines = await buildLines(tx, outletId, outlet.taxRateBps, input.items, userId, order!.id);

@@ -118,3 +118,15 @@ describe('authorization & tenancy', () => {
     expect((await waiter.client.get(`/api/v1/outlets/${second.body.id}/menu`)).status).toBe(403);
   });
 });
+
+describe('resilience', () => {
+  it('survives the database dropping idle connections', async () => {
+    const c = new Client(ctx.app);
+    await registerOrg(ctx.app);
+    // Kill every other connection to the test database (simulates a Postgres restart).
+    await ctx.db.execute(sql`select pg_terminate_backend(pid) from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid()`);
+    await new Promise((r) => setTimeout(r, 200));
+    const res = await c.get('/ready');
+    expect(res.status).toBe(200);
+  });
+});

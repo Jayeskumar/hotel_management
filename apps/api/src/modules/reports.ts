@@ -39,7 +39,10 @@ export default async function reportRoutes(app: FastifyInstance) {
   app.get('/dashboard', async (req) => {
     const outletId = outletIdOf(req);
     const zone = await tz(outletId);
-    const dayStart = sql`(date_trunc('day', now() at time zone ${zone}) at time zone ${zone})`;
+    // Use the application clock (not the database's) so "today" matches what the API reports elsewhere.
+    const now = new Date();
+    const nowTs = sql`${now.toISOString()}::timestamptz`;
+    const dayStart = sql`(date_trunc('day', ${nowTs} at time zone ${zone}) at time zone ${zone})`;
     const [[sales], [open], tables, [kitchen], upcoming, [low]] = await Promise.all([
       app.db.select({
         salesCents: sql<number>`coalesce(sum(${orders.totalCents}),0)::int`,
@@ -55,8 +58,8 @@ export default async function reportRoutes(app: FastifyInstance) {
         .where(and(eq(orderItems.outletId, outletId), eq(orders.status, 'OPEN'), inArray(orderItems.status, ['QUEUED', 'PREPARING']))),
       app.db.select().from(reservations).where(and(
         eq(reservations.outletId, outletId), eq(reservations.status, 'BOOKED'),
-        gte(reservations.reservedFor, sql`now() - interval '30 minutes'`),
-        lt(reservations.reservedFor, sql`now() + interval '4 hours'`),
+        gte(reservations.reservedFor, new Date(now.getTime() - 30 * 60_000)),
+        lt(reservations.reservedFor, new Date(now.getTime() + 4 * 3_600_000)),
       )).orderBy(reservations.reservedFor).limit(10),
       app.db.select({ count: sql<number>`count(*)::int` }).from(inventoryItems)
         .where(and(eq(inventoryItems.outletId, outletId), sql`${inventoryItems.quantityOnHand} <= ${inventoryItems.reorderLevel}`)),
